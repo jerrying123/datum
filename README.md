@@ -13,6 +13,7 @@ python3 -m venv .venv
 . .venv/bin/activate
 python -m pip install ./datum_interface ./parameter_studio
 cargo build --manifest-path rust/Cargo.toml --bins
+cargo install --path rust --bin datum-params --locked
 dparam-std up --source-repo "$PWD" --project /path/to/your/cad/project
 ```
 
