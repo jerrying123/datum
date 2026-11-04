@@ -1,0 +1,1 @@
+{"name":"datum-parameter-studio","version":"0.1.0","private":true,"type":"module","scripts":{"start":"node server.js"},"dependencies":{"adm-zip":"^0.5.16","express":"^5.1.0","three":"^0.180.0"}}

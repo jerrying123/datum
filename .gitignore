@@ -1,0 +1,9 @@
+rust/target/
+**/__pycache__/
+**/*.pyc
+**/*.egg-info/
+**/build/
+**/node_modules/
+.venv/
+.dparams-studio/
+.env

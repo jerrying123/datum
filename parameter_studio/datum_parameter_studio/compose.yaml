@@ -1,0 +1,17 @@
+services:
+  studio:
+    build:
+      context: ${DATUM_SOURCE_REPO:-../..}
+      dockerfile: parameter_studio/datum_parameter_studio/Dockerfile
+    ports:
+      - "127.0.0.1:${DATUM_STUDIO_PORT:-8000}:8080"
+    environment:
+      DATUM_STUDIO_PORT: 8080
+      DATUM_PROJECT_ROOT: /workspace
+      DATUM_URDF_SPOOL: /urdf-jobs
+      DATUM_PROJECT_ID: ${DATUM_PROJECT_ID:-${DATUM_PROJECT_DIR:-.}}
+    volumes:
+      - "${DATUM_PROJECT_DIR:-.}:/workspace:ro"
+      - "${DATUM_PREVIEW_DIR:-/tmp/dparams-previews}:/previews:ro"
+      - "${DATUM_URDF_SPOOL:-/tmp/dparams-urdf-jobs}:/urdf-jobs:rw"
+    restart: unless-stopped

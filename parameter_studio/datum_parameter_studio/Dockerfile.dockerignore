@@ -1,0 +1,9 @@
+**
+!rust/
+!rust/**
+rust/target/
+!parameter_studio/
+!parameter_studio/datum_parameter_studio/
+!parameter_studio/datum_parameter_studio/**
+**/node_modules/
+**/__pycache__/

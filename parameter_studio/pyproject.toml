@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "datum-parameter-studio"
+version = "0.1.0"
+license = {text = "Apache-2.0"}
+description = "Local Docker Compose launcher for Datum Parameter Studio"
+requires-python = ">=3.10"
+
+[project.scripts]
+dparam-std = "datum_parameter_studio.cli:main"
+
+[tool.setuptools.package-data]
+datum_parameter_studio = ["compose.yaml", "Dockerfile", "package.json", "package-lock.json", "server.js", "render_watcher.py", "public/*"]
+
+[tool.setuptools]
+packages = ["datum_parameter_studio"]
