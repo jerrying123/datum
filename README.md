@@ -31,7 +31,7 @@ It verifies the spec and saved CAD hashes. Keep the exact downloaded spec beside
 
 ## C++ example
 
-The [C++ pick-and-place example](examples/cpp-pick-place/README.md) generates headers from baseline and changed CAD, then compares the same changed arm with stale and current controller dimensions. It is a kinematic demonstration and requires no ROS.
+The [ROS 2 C++ pick-and-place example](examples/ros2_cpp_pick_place/README.md) uses generated dimensions with an `rclcpp` controller and action-based motor simulator. The companion [standalone C++ comparison](examples/cpp-pick-place/README.md) contrasts stale and current dimensions against the same kinematic arm.
 
 ## Scope
 
