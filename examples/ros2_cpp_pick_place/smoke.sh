@@ -14,13 +14,24 @@ source /opt/ros/jazzy/setup.bash
 cd "$work"
 colcon build --event-handlers console_direct+ --cmake-args "-DDPARAMS_HEADER_DIR=$header"
 source "$work/install/setup.bash"
-ros2 run dparams_cpp_pick_place motor_sim > "$work/motor.log" 2>&1 & motor_pid=$!
-ros2 run dparams_cpp_pick_place pick_place > "$work/controller.log" 2>&1 & controller_pid=$!
-cleanup(){ kill "$motor_pid" "$controller_pid" 2>/dev/null || true; }
+# Exercise the missing-server path, then prove the same controller can retry.
+ros2 run dparams_cpp_pick_place pick_place --ros-args -p action_server_timeout_sec:=2.0 > "$work/controller.log" 2>&1 & controller_pid=$!
+motor_pid=''
+cleanup(){ if [[ -n "$motor_pid" ]]; then kill "$motor_pid" 2>/dev/null || true; fi; kill "$controller_pid" 2>/dev/null || true; }
 trap cleanup EXIT
-if ! timeout 20s ros2 topic pub --once /pick_target geometry_msgs/msg/PoseStamped '{header: {frame_id: base_link}, pose: {position: {x: 0.25, y: 0.0, z: 0.2}, orientation: {w: 1.0}}}'; then
+publish_target(){ timeout 20s ros2 topic pub --once /pick_target geometry_msgs/msg/PoseStamped '{header: {frame_id: base_link}, pose: {position: {x: 0.25, y: 0.0, z: 0.2}, orientation: {w: 1.0}}}'; }
+if ! publish_target; then cat "$work/controller.log"; exit 1; fi
+for _ in $(seq 1 10); do
+  if grep -q 'Action server unavailable after' "$work/controller.log"; then break; fi
+  sleep 1
+done
+if ! grep -q 'Action server unavailable after' "$work/controller.log"; then cat "$work/controller.log"; exit 1; fi
+if grep -q 'State: APPROACH' "$work/controller.log"; then cat "$work/controller.log"; exit 1; fi
+ros2 run dparams_cpp_pick_place motor_sim > "$work/motor.log" 2>&1 & motor_pid=$!
+if ! timeout 20s bash -c 'until ros2 action info /arm_controller/follow_joint_trajectory 2>/dev/null | grep -q "Action servers: 1"; do sleep 1; done'; then
   cat "$work/controller.log" "$work/motor.log"; exit 1
 fi
+if ! publish_target; then cat "$work/controller.log" "$work/motor.log"; exit 1; fi
 for _ in $(seq 1 30); do
   if grep -q 'Pick and place sequence complete' "$work/controller.log"; then
     cat "$work/controller.log"

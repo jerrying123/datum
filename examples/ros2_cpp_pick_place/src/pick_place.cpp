@@ -1,4 +1,5 @@
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <deque>
 #include <memory>
@@ -22,6 +23,9 @@ using namespace std::chrono_literals;
 class PickPlace : public rclcpp::Node {
  public:
   PickPlace() : Node("dparams_cpp_pick_place") {
+    server_timeout_seconds_ = declare_parameter<double>("action_server_timeout_sec", 10.0);
+    if (!std::isfinite(server_timeout_seconds_) || server_timeout_seconds_ <= 0.0)
+      throw std::invalid_argument("action_server_timeout_sec must be positive and finite");
     client_ = rclcpp_action::create_client<Action>(this, "/arm_controller/follow_joint_trajectory");
     target_ = create_subscription<geometry_msgs::msg::PoseStamped>("/pick_target", 10,
       [this](geometry_msgs::msg::PoseStamped::ConstSharedPtr msg) { on_target(*msg); });
@@ -61,11 +65,22 @@ class PickPlace : public rclcpp::Node {
       proposed.emplace_back("TRANSFER",ik(.24,-.12,.185,0));
       proposed.emplace_back("RELEASE",ik(.24,-.12,.185,open));
       steps_=std::move(proposed); busy_=true;
+      server_wait_started_=std::chrono::steady_clock::now();
+      if (!client_->action_server_is_ready())
+        RCLCPP_INFO(get_logger(), "Waiting up to %.1f seconds for /arm_controller/follow_joint_trajectory", server_timeout_seconds_);
     } catch(const std::exception& e) { RCLCPP_ERROR(get_logger(),"Target rejected: %s",e.what()); }
   }
   void tick() {
-    if(!busy_ || in_flight_ || !client_->action_server_is_ready()) return;
+    if(!busy_ || in_flight_) return;
     if(steps_.empty()) { busy_=false; done_=true; RCLCPP_INFO(get_logger(),"Pick and place sequence complete"); return; }
+    if(!client_->action_server_is_ready()) {
+      const double elapsed=std::chrono::duration<double>(std::chrono::steady_clock::now()-server_wait_started_).count();
+      if(elapsed >= server_timeout_seconds_) {
+        RCLCPP_ERROR(get_logger(), "Action server unavailable after %.1f seconds; target cancelled. Publish a new target to retry.", server_timeout_seconds_);
+        steps_.clear();busy_=false;
+      }
+      return;
+    }
     auto step=steps_.front();steps_.pop_front();in_flight_=true;
     Action::Goal goal; goal.trajectory.joint_names={"base_yaw","shoulder","elbow","wrist","left_finger","right_finger"};
     trajectory_msgs::msg::JointTrajectoryPoint point;point.positions=step.second;point.time_from_start.sec=2;goal.trajectory.points.push_back(point);
@@ -74,6 +89,7 @@ class PickPlace : public rclcpp::Node {
     options.goal_response_callback=[this](GoalHandle::SharedPtr handle) { if(!handle){RCLCPP_ERROR(get_logger(),"Trajectory rejected");steps_.clear();busy_=false;done_=true;in_flight_=false;} };
     options.result_callback=[this,label=step.first](const GoalHandle::WrappedResult& result) {
       in_flight_=false;
+      server_wait_started_=std::chrono::steady_clock::now();
       if(result.code!=rclcpp_action::ResultCode::SUCCEEDED || !result.result || result.result->error_code!=Action::Result::SUCCESSFUL) {
         RCLCPP_ERROR(get_logger(),"Trajectory failed at %s",label.c_str());steps_.clear();busy_=false;done_=true;return;
       }
@@ -88,6 +104,8 @@ class PickPlace : public rclcpp::Node {
   rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr joints_;
   rclcpp::TimerBase::SharedPtr timer_;
   std::deque<std::pair<std::string,std::vector<double>>> steps_;
+  std::chrono::steady_clock::time_point server_wait_started_;
+  double server_timeout_seconds_=10.0;
   double left_=NAN,right_=NAN;
   bool busy_=false,done_=false,in_flight_=false;
 };
