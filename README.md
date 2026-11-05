@@ -29,6 +29,10 @@ print(params['forearm_length_m'])
 
 It verifies the spec and saved CAD hashes. Keep the exact downloaded spec beside the manifest. Snapshot-based generation belongs to the optional Datum integration and is not implemented in this standalone package.
 
+## C++ example
+
+The [C++ pick-and-place example](examples/cpp-pick-place/README.md) generates headers from baseline and changed CAD, then compares the same changed arm with stale and current controller dimensions. It is a kinematic demonstration and requires no ROS.
+
 ## Scope
 
 The URDF preview/export requires a separately installed SolidCraft CLI. The initial validator accepts a limited SolidCraft/34 assembly profile; coupling, transform equivalence, physical mass properties, and simulation or hardware readiness are not certified. A structural pass is not a fidelity or safety guarantee. Consult the Studio guide before using a generated file.

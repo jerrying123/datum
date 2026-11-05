@@ -1,0 +1,20 @@
+name: C++ pick-and-place example
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  cpp-demo:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build generator and preflight
+        run: cargo test --manifest-path rust/Cargo.toml --locked
+      - name: Check C++ generated-header example
+        run: python3 -m unittest discover -s examples/cpp-pick-place/tests -v
+      - name: Check Python loader and URDF validation
+        run: |
+          PYTHONPATH="$PWD/datum_interface/python" python3 -m unittest discover -s datum_interface/tests -v
+          PYTHONPATH="$PWD/parameter_studio" python3 -m unittest discover -s parameter_studio/tests -v
