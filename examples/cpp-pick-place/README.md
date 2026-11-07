@@ -57,3 +57,35 @@ python3 examples/cpp-pick-place/benchmark.py /tmp/dparams-cpp-pick-place/changed
 The report records every wall-clock sample and its median, minimum and maximum. Each sample launches a fresh process and runs the complete kinematic plan; it includes process startup and execution, not just parameter loading. The lazy example reads the CAD twice (controller and physical model); the generated example uses compiled constants and performs no runtime freshness check. The script checks that both produce identical plan output and that the spec and CAD hashes remain unchanged throughout measurement. It alternates execution order after warmup; results depend on the machine, filesystem cache and system load.
 
 Separate one-time measurements cover generating JSON/header artifacts and compiling the generated example, plus compiling the lazy example. They exclude building the Rust generator and library, CAD creation, and any ROS, URDF export, physics engine or simulator initialization. Thus these numbers estimate overhead in this small example, not full simulation startup; generated artifacts must be regenerated and rebuilt after CAD changes.
+
+### Recorded result: November 7, 2026
+
+On one Manjaro x86-64 machine (Linux 6.18.55), this example was measured
+with 2 warmup runs and 30 measured runs per mode. The same changed synthetic
+SolidCraft arm was used in both cases. Times cover process launch through
+completion of the kinematic plan.
+
+| Mode | Median | p90 | p95 | p99 | Maximum |
+|---|---:|---:|---:|---:|---:|
+| Generated C++ constants | 1.195 ms | 1.300 ms | 1.324 ms | 1.361 ms | 1.374 ms |
+| Lazy CAD evaluation | 4.045 ms | 4.200 ms | 4.219 ms | 4.373 ms | 4.431 ms |
+
+The difference between the two p99 estimates was 3.011 ms (3.21×). The
+single measured artifact generation took 2.676 ms; compilation of the
+generated example took 492.592 ms, and compilation of the lazy example took
+871.858 ms. These one-time measurements exclude building the Rust library
+and generator. The percentile estimates use linear interpolation between
+sorted samples; 30 samples are insufficient to characterize a reliable tail
+latency or hardware-wide performance guarantee.
+
+The lazy example evaluates the CAD twice, once each for the controller and
+physical model; the generated example uses baked constants without a runtime
+freshness check. The timings include process startup and the entire small
+kinematic plan. They do not include URDF export, ROS, physics, Docker or a
+complete simulator's startup. Machine load and filesystem cache affect the
+results. The [recorded JSON](benchmarks/2026-11-07-linux-x86_64.json) retains
+all samples, the original temporary project path, and the spec and source
+hashes; it is a measurement record, not the CAD inputs themselves.
+
+To repeat the measurement on your machine, first run `run.sh` as described
+above, then run the startup performance check with `--warmup 2 --runs 30`.
