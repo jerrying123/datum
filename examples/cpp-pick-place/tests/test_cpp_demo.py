@@ -25,6 +25,20 @@ def write_cad_project(root, variant, forearm_length):
     return spec_path
 
 class CppPickPlaceTest(unittest.TestCase):
+    def test_startup_benchmark_compares_matching_outputs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp) / 'changed'
+            write_cad_project(project, 'changed', 160)
+            subprocess.run(['cargo','build','--quiet','--locked','--manifest-path',str(ROOT/'rust/Cargo.toml'),'--bin','datum-params','--lib'],check=True)
+            report = Path(tmp) / 'report.json'
+            subprocess.run(['python3',str(EXAMPLE/'benchmark.py'),str(project),'--runs','2','--warmup','0','--output',str(report)],check=True,capture_output=True,text=True)
+            data = json.loads(report.read_text())
+            self.assertEqual(data['schema'], 'datum.cpp-pick-place.startup-benchmark/1')
+            self.assertEqual(len(data['end_to_end_process_ms']['compiled']['samples_ms']), 2)
+            self.assertEqual(len(data['end_to_end_process_ms']['lazy']['samples_ms']), 2)
+            self.assertGreater(data['one_time_ms']['generate_artifacts'], 0)
+            self.assertEqual(len(data['sources_sha256']), 4)
+
     def test_generated_headers_drive_same_changed_plant(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
