@@ -6,13 +6,42 @@ The model evaluates grasp, lift and place target positions using the arm's two-l
 
 ## Run
 
-Install Rust/Cargo, a C++17 compiler, `sha256sum` and SolidCraft with `solidcraft-cli` on PATH. From a checkout of this repository:
+This example can be run either from a downloaded release archive (no Rust/Cargo needed) or from a git checkout of this repository.
+
+### Prerequisites
+
+- A C++17 compiler (`c++` / `g++` / `clang++`)
+- `sha256sum`
+- SolidCraft with `solidcraft-cli` on `PATH`
+- *If running from git checkout only:* Rust/Cargo (to build the CLI and static library from source)
+
+### From the downloaded release archive
+
+In the downloaded native release bundle (`datum-params-<platform>.zip`), the precompiled `datum-params` CLI, `include/dparams_lazy.h` header, and static library `libdatum_params_tools.a` are already included, so **no Rust source or Cargo installation is required**.
+
+From the extracted archive root (`dparams/`):
+
+```sh
+example/run.sh /tmp/dparams-cpp-pick-place
+```
+
+Or if you changed into the `example/` directory:
+
+```sh
+./run.sh /tmp/dparams-cpp-pick-place
+```
+
+### From a repository checkout
+
+From the root of a cloned repository:
 
 ```sh
 examples/cpp-pick-place/run.sh /tmp/dparams-cpp-pick-place
 ```
 
-The destination must not exist. The script creates new native SolidCraft box files for baseline and changed dimensions, writes a parameter spec for each, invokes the real `datum-params` generator and compiles both C++ controllers. It compiles `physical.cpp` once against the changed header and links that **same object** into both cases. The controller source is the same for both executables; its include path selects the baseline or changed generated header. It does not edit source CAD or override hashes.
+### What `run.sh` does
+
+The destination must not exist. The script creates new native SolidCraft box files for baseline and changed dimensions, writes a parameter spec for each, invokes the real `datum-params` generator (using the precompiled binary in the archive, or building with Cargo if in a source checkout) and compiles both C++ controllers. It compiles `physical.cpp` once against the changed header and links that **same object** into both cases. The controller source is the same for both executables; its include path selects the baseline or changed generated header. It does not edit source CAD or override hashes.
 
 | Parameter | Baseline controller | Changed CAD/controller |
 |---|---:|---:|
@@ -26,7 +55,7 @@ The stale controller misses the fixed grasp target by 0.0600 m and stops. The ge
 
 ## Lazy mode
 
-`run.sh` also builds `pick_place_lazy`, a second consumer that needs **no generated artifacts at all**. It links the shared Rust evaluation core as a static library (`rust/include/dparams_lazy.h`) and extracts every dimension from the parameter spec and saved CAD at startup:
+`run.sh` also builds `pick_place_lazy`, a second consumer that needs **no generated artifacts at all**. It links the shared Rust evaluation core as a static library (`include/dparams_lazy.h` and `libdatum_params_tools.a`) and extracts every dimension from the parameter spec and saved CAD at startup:
 
 | Lazy run | Controller CAD | Physical CAD | Result |
 |---|---|---|---|
@@ -49,6 +78,13 @@ The generated C++ header contains constants; it **does not perform runtime CAD o
 
 After running the example above, measure both modes on the **same changed CAD**:
 
+**From the release archive root:**
+```sh
+python3 example/benchmark.py /tmp/dparams-cpp-pick-place/changed \
+  --warmup 2 --runs 20 --output /tmp/dparams-startup-benchmark.json
+```
+
+**From a repository checkout:**
 ```sh
 python3 examples/cpp-pick-place/benchmark.py /tmp/dparams-cpp-pick-place/changed \
   --warmup 2 --runs 20 --output /tmp/dparams-startup-benchmark.json

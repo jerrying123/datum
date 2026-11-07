@@ -3,6 +3,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -183,5 +184,27 @@ int main() {
             executable = root / 'reach'
             subprocess.run(['c++','-std=c++17','-Wall','-Wextra','-Werror','-I',str(EXAMPLE),str(source),'-o',str(executable)],check=True)
             self.assertEqual(subprocess.run([str(executable)]).returncode,0)
+
+    def test_bundled_archive_layout_works_without_rust_source(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            subprocess.run(["cargo", "build", "--quiet", "--locked", "--manifest-path", str(ROOT / "rust/Cargo.toml"), "--bin", "datum-params", "--lib"], check=True)
+            archive_dir = Path(tmp) / "dparams"
+            archive_dir.mkdir()
+            (archive_dir / "include").mkdir()
+            shutil.copy2(ROOT / "rust/include/dparams_lazy.h", archive_dir / "include/dparams_lazy.h")
+            shutil.copy2(ROOT / "rust/target/debug/datum-params", archive_dir / "datum-params")
+            shutil.copy2(ROOT / "rust/target/debug/libdatum_params_tools.a", archive_dir / "libdatum_params_tools.a")
+            shutil.copytree(EXAMPLE, archive_dir / "example")
+
+            out_dir = Path(tmp) / "output"
+            proc = subprocess.run([str(archive_dir / "example/run.sh"), str(out_dir)], capture_output=True, text=True)
+            self.assertEqual(proc.returncode, 0, f"run.sh failed: {proc.stderr}\n{proc.stdout}")
+            self.assertTrue((out_dir / "changed/pick_place").is_file())
+            self.assertTrue((out_dir / "pick_place_lazy").is_file())
+
+            bench_report = Path(tmp) / "bench.json"
+            bench_proc = subprocess.run(["python3", str(archive_dir / "example/benchmark.py"), str(out_dir / "changed"), "--runs", "2", "--warmup", "0", "--output", str(bench_report)], capture_output=True, text=True)
+            self.assertEqual(bench_proc.returncode, 0, f"benchmark.py failed: {bench_proc.stderr}\n{bench_proc.stdout}")
+            self.assertTrue(bench_report.is_file())
 
 if __name__=='__main__': unittest.main()

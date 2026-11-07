@@ -4,7 +4,50 @@ DParams extracts explicit SolidCraft dimensions into a hash-checked JSON manifes
 
 ## Install
 
-Requires Python 3.10+, Rust/Cargo, Docker Compose and a host installation of `solidcraft-cli` for CAD rendering and URDF export. From a clone:
+You can install the Python runtime library via `pip`, download precompiled native CLI and C++ static library archives from GitHub Releases without cloning the repository, or build everything from a source checkout.
+
+### Python runtime package (pip)
+
+The Python runtime loader (`datum_interface`) is published on PyPI as `datum-cad-parameters` (requires Python 3.10+):
+
+```sh
+pip install datum-cad-parameters
+```
+
+This provides the `datum_interface` package (`load` and `load_lazy`) for consuming generated manifests or evaluating CAD lazily in Python without compiling Rust or cloning the repository.
+
+### Native CLI & C++ static library (GitHub Release archive)
+
+Precompiled native bundles are published on [GitHub Releases](https://github.com/marker-labs/datum-params/releases) for Linux x86-64 (`datum-params-linux-x86_64.zip`), macOS Apple Silicon (`datum-params-macos-aarch64.zip`), macOS Intel (`datum-params-macos-x86_64.zip`), and Windows x86-64 (`datum-params-windows-x86_64.zip`).
+
+Download and unzip the archive for your platform without cloning the repository:
+
+```sh
+unzip datum-params-linux-x86_64.zip
+cd dparams
+```
+
+The self-contained archive includes:
+- `datum-params` (or `datum-params.exe` on Windows): standalone CLI executable to extract JSON manifests and C++ headers. You can move it to `/usr/local/bin` or place it on your `PATH`.
+- `include/dparams_lazy.h`: C ABI / C++ header for runtime lazy CAD evaluation.
+- `libdatum_params_tools.a` (or `datum_params_tools.lib` on Windows): precompiled static library.
+- `example/`: bundled C++ kinematic pick-and-place comparison example that runs directly from the archive without Rust or Cargo.
+
+To compile your own C++ code against the bundled library and header without Rust:
+
+```sh
+c++ -std=c++17 -I include my_app.cpp libdatum_params_tools.a -lpthread -ldl -o my_app
+```
+
+To run the bundled C++ example from the extracted archive (requires a C++17 compiler, `sha256sum`, and `solidcraft-cli` on `PATH`):
+
+```sh
+example/run.sh /tmp/dparams-cpp-pick-place
+```
+
+### Developer install from clone (including Parameter Studio)
+
+Developing the Rust generator, modifying Parameter Studio, or running from source requires Python 3.10+, Rust/Cargo, Docker Compose, and a host installation of `solidcraft-cli` for CAD rendering and URDF export:
 
 ```sh
 git clone https://github.com/marker-labs/datum-params.git
@@ -35,7 +78,7 @@ params = load_lazy('PROJECT', worktree='main')            # no parameters.json n
 params = load_lazy('PROJECT', evidence='evidence/lazy.json')  # machine-readable record
 ```
 
-The C++ side has the same choice: link the compiled constants from a generated `parameters.hpp`, or include `rust/include/dparams_lazy.h` and link the `libdatum_params_tools` static library and read the values at startup. The Rust generator and C ABI share one evaluation core; the Python loader is a separate implementation kept in step by cross-mode conformance tests. Snapshot-based generation belongs to the optional Datum integration and is not implemented in this standalone package.
+The C++ side has the same choice: link the compiled constants from a generated `parameters.hpp`, or include `rust/include/dparams_lazy.h` (or `include/dparams_lazy.h` in the release archive) and link the `libdatum_params_tools` static library and read the values at startup. The Rust generator and C ABI share one evaluation core; the Python loader is a separate implementation kept in step by cross-mode conformance tests. Snapshot-based generation belongs to the optional Datum integration and is not implemented in this standalone package.
 
 ## URDF export modes
 
@@ -58,7 +101,7 @@ Export runs against the saved CAD at evaluation time and is stamped with the sou
 
 ## C++ example
 
-The [ROS 2 C++ pick-and-place example](examples/ros2_cpp_pick_place/README.md) uses generated dimensions with an `rclcpp` controller and action-based motor simulator. The companion [standalone C++ comparison](examples/cpp-pick-place/README.md) contrasts stale and current dimensions against the same kinematic arm, in a compiled-header mode and a lazy mode that reads the CAD at startup with no generated files.
+The [ROS 2 C++ pick-and-place example](examples/ros2_cpp_pick_place/README.md) uses generated dimensions with an `rclcpp` controller and action-based motor simulator. The companion [standalone C++ comparison](examples/cpp-pick-place/README.md) contrasts stale and current dimensions against the same kinematic arm, in a compiled-header mode and a lazy mode that reads the CAD at startup with no generated files. It is bundled in the native release archive as `example/` and runs with the precompiled CLI and static library without Rust or Cargo.
 
 ## Scope
 
