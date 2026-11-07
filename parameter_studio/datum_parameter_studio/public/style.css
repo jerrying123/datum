@@ -29,3 +29,41 @@ button,input,select{min-height:44px}button:focus-visible,input:focus-visible,tex
 .part-row input[type=checkbox]{min-height:0;width:20px;height:20px;margin-right:10px;vertical-align:middle;accent-color:#0088ff}#feature-tree details{border-bottom:1px solid #dce5df}#feature-tree summary{cursor:pointer;padding:12px 8px;font-weight:650;list-style:none}#feature-tree summary::before{content:"▸";display:inline-block;margin-right:9px}#feature-tree details[open]>summary::before{content:"▾"}#feature-tree details .feature-row{padding-left:28px}
 .urdf-panel{grid-column:1/-1;min-width:0;display:block!important}.urdf-panel p,.urdf-panel a{overflow-wrap:anywhere}.urdf-panel button,.urdf-panel a{min-height:44px;margin:4px 0;max-width:100%}.urdf-panel a{display:inline-flex;align-items:center;margin-right:16px}.urdf-panel progress{width:100%}#urdf-evidence p{white-space:pre-wrap;font-size:13px} .urdf-panel [hidden]{display:none!important}
 @media(max-width:700px){.urdf-panel{padding:16px}.urdf-panel button{width:100%}}
+
+/* CAD workspace: the viewer fills the available window; tools float above it. */
+html,body{height:100%;overflow:hidden}
+header{height:52px;padding:0 18px;position:relative;z-index:3}
+main{position:relative;display:block;width:100%;max-width:none;height:calc(100dvh - 52px);margin:0;padding:0;overflow:hidden}
+.preview-card{position:absolute;inset:0;margin:0;padding:0;border:0;border-radius:0;box-shadow:none;background:#dce3e6}
+.preview-card #preview{position:absolute;inset:0;width:100%;height:100%;min-height:0;aspect-ratio:auto;border-radius:0}
+.preview-card>.step,.preview-card>.selection-label,.preview-card>.viewer-setting{position:absolute;z-index:1;left:16px;max-width:calc(100% - 32px);margin:0;padding:8px 12px;border:1px solid #ffffffa0;border-radius:8px;background:rgba(250,253,251,.88);box-shadow:0 4px 16px #15282026;backdrop-filter:blur(10px)}
+.preview-card>.step{top:16px;max-width:calc(100% - 440px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.preview-card>.selection-label{bottom:16px;max-width:calc(100% - 440px)}
+.preview-card>.viewer-setting{top:62px;min-height:40px}
+.preview-card>.hint{display:none}
+.workspace-panel{position:absolute;z-index:2;top:60px;right:16px;bottom:16px;width:min(390px,calc(100% - 32px));overflow-y:auto;overscroll-behavior:contain;border:1px solid #ffffffac;border-radius:14px;background:rgba(247,251,248,.91);box-shadow:0 12px 36px #13282035;backdrop-filter:blur(14px);padding:12px}
+.workspace-panel[hidden]{display:none}
+.panel-toggle{position:absolute;z-index:3;right:16px;top:12px;background:rgba(20,35,30,.92);box-shadow:0 4px 16px #15282030}
+.workspace-tabs{position:static;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:5px;margin:0;padding:0;background:transparent}
+.workspace-tabs button{font-size:12px;padding:8px 5px}
+.flow-status{margin:8px 3px}
+.workspace-panel .card{margin:8px 0;padding:14px;background:rgba(255,255,255,.76);box-shadow:none}
+.workspace-panel [data-panel]{display:none}
+body[data-tab=parts] .workspace-panel [data-panel=parts],body[data-tab=features] .workspace-panel [data-panel=features],body[data-tab=mappings] .workspace-panel [data-panel=mappings],body[data-tab=export] .workspace-panel [data-panel=export]:not([hidden]){display:block}
+.workspace-panel .mapping{grid-template-columns:minmax(0,1fr) 85px}
+.workspace-panel .mapping .source-ref{grid-column:1/-1}
+.workspace-panel #feature-tree{max-height:none;overflow:visible}
+.urdf-panel{display:block!important}.urdf-panel summary{cursor:pointer;font-weight:700;color:#17674d;min-height:32px}.urdf-panel:not([open]){padding-bottom:8px}
+.workspace-panel footer{padding:10px 4px;font-size:11px}
+@media(max-width:700px){
+ header{height:52px;min-height:52px}
+ main{height:calc(100dvh - 52px);margin:0;padding:0}
+ .preview-card{margin:0;padding:0}.preview-card #preview{height:100%;min-height:0}
+ .preview-card>.step{top:10px;left:10px;max-width:calc(100% - 140px);font-size:10px}
+ .preview-card>.step span{display:inline;margin:0}.preview-card>.viewer-setting{top:56px;left:10px}.preview-card>.selection-label{left:10px;bottom:10px;max-width:calc(100% - 20px)}
+ .panel-toggle{top:8px;right:10px;padding:8px 10px}
+ .workspace-panel{top:auto;right:10px;bottom:max(10px,env(safe-area-inset-bottom));width:calc(100% - 20px);max-height:45%;padding:10px}
+ .workspace-tabs{grid-template-columns:repeat(4,minmax(0,1fr));position:sticky;top:-10px;z-index:2;padding:4px 0;background:#f7fbf8}
+ .workspace-tabs button{font-size:10px}.workspace-panel .card{margin:6px 0;padding:12px}
+ .workspace-panel #feature-tree{max-height:none}.workspace-panel .urdf-panel button{width:auto}
+}
