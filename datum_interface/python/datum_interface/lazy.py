@@ -175,7 +175,11 @@ def _cad_value(root, mapping, hashes):
     minimum = minimum * scale if minimum is not None else None
     maximum = maximum * scale if maximum is not None else None
     _check_bounds("CAD dimension", value, minimum, maximum)
-    hashes[mapping["path"]] = hashlib.sha256(raw).hexdigest()
+    digest = hashlib.sha256(raw).hexdigest()
+    previous = hashes.get(mapping["path"])
+    if previous is not None and previous != digest:
+        raise ValueError("source changed during evaluation: %s" % mapping["path"])
+    hashes[mapping["path"]] = digest
     return value
 
 

@@ -65,7 +65,9 @@ pub fn cad_value(root:&Path,m:&Mapping,hashes:&mut BTreeMap<String,String>)->Res
     let scale=unit_scale(&m.source_units,&m.unit)?;
     let value=n*scale;
     check_bounds("CAD dimension",value,m.min.map(|v|v*scale),m.max.map(|v|v*scale))?;
-    hashes.insert(m.path.clone(),format!("{:x}",Sha256::digest(&bytes)));
+    let digest=format!("{:x}",Sha256::digest(&bytes));
+    if hashes.get(&m.path).is_some_and(|previous| previous != &digest){bail!("source changed during evaluation: {}",m.path)}
+    hashes.insert(m.path.clone(),digest);
     Ok(value)
 }
 

@@ -236,6 +236,19 @@ class ConformanceTest(unittest.TestCase):
             finally:
                 lazy_module._cad_value = original
 
+    def test_same_source_changed_between_mappings_is_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            cad = root / 'cad/part.solidcraft'
+            write_cad(cad, {'units':'mm','features':[{'type':'box','length':160}]})
+            mapping = {'path':'cad/part.solidcraft','pointer':'/features/0/length','source_units':'mm','unit':'m'}
+            from datum_interface import lazy as lazy_module
+            hashes = {}
+            lazy_module._cad_value(root, mapping, hashes)
+            write_cad(cad, {'units':'mm','features':[{'type':'box','length':200}]})
+            with self.assertRaisesRegex(ValueError, 'source changed during evaluation'):
+                lazy_module._cad_value(root, mapping, hashes)
+
 
 if __name__ == '__main__':
     unittest.main()
