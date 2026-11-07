@@ -67,3 +67,5 @@ body[data-tab=parts] .workspace-panel [data-panel=parts],body[data-tab=features]
  .workspace-tabs button{font-size:10px}.workspace-panel .card{margin:6px 0;padding:12px}
  .workspace-panel #feature-tree{max-height:none}.workspace-panel .urdf-panel button{width:auto}
 }
+/* Fallback text remains legible while the model renderer is unavailable. */
+.preview-card #preview{color:#dce7e1;text-align:center}
