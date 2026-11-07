@@ -34,6 +34,26 @@ class Parameters:
         return {node_name: {"ros__parameters": dict(self.values)}}
 
 
+from .lazy import evaluate_lazy, write_evidence
+
+
+def load_lazy(project, *, worktree="main", evidence=None):
+    """Load parameters directly from spec and saved CAD, with no generated files.
+
+    Evaluates PROJECT/datum/spec.json for the selected worktree against the
+    saved SolidCraft sources and returns the same Parameters object as load().
+    No generated parameters.json or parameters.hpp needs to exist, and the
+    values cannot silently drift from the CAD: any missing field, unit mismatch,
+    out-of-bounds value or non-positive dimension raises ValueError instead.
+    When evidence is a path, a machine-readable record of this evaluation
+    (mode, values, bounds, source and spec SHA-256 hashes) is written there.
+    """
+    manifest, lazy_evidence = evaluate_lazy(project, worktree=worktree)
+    if evidence is not None:
+        write_evidence(evidence, lazy_evidence)
+    return Parameters(manifest)
+
+
 def load(manifest_path, *, worktree=None):
     """Load a generated manifest after checking the selected tree and CAD hashes."""
     path = Path(manifest_path).resolve()

@@ -19,7 +19,7 @@ dparam-std up --source-repo "$PWD" --project /path/to/your/cad/project
 
 Open http://localhost:8000. For a phone on your Tailscale network add `--tailscale` and use the URL printed by the launcher. Studio runs in the foreground; use another terminal for other commands. See [Studio instructions](parameter_studio/README.md).
 
-The runtime API loads a generated file at `PROJECT/datum/parameters.json`, alongside `PROJECT/datum/spec.json`:
+The runtime API has two modes. Compiled mode loads a generated file at `PROJECT/datum/parameters.json`, alongside `PROJECT/datum/spec.json`:
 
 ```python
 from datum_interface import load
@@ -27,11 +27,37 @@ params = load('PROJECT/datum/parameters.json', worktree='main')
 print(params['forearm_length_m'])
 ```
 
-It verifies the spec and saved CAD hashes. Keep the exact downloaded spec beside the manifest. Snapshot-based generation belongs to the optional Datum integration and is not implemented in this standalone package.
+It verifies the spec and saved CAD hashes: keep the exact downloaded spec beside the manifest. Lazy mode gives the same Parameters object without any generated artifacts by evaluating the spec against the saved CAD at startup, so values cannot silently drift from the CAD; any missing field, unit mismatch or out-of-bounds dimension fails fast instead:
+
+```python
+from datum_interface import load_lazy
+params = load_lazy('PROJECT', worktree='main')            # no parameters.json needed
+params = load_lazy('PROJECT', evidence='evidence/lazy.json')  # machine-readable record
+```
+
+The C++ side has the same choice: link the compiled constants from a generated `parameters.hpp`, or link `rust/include/dparams_lazy.h` (the shared Rust evaluation core as a static library) and read the values at startup. Snapshot-based generation belongs to the optional Datum integration and is not implemented in this standalone package.
+
+## URDF export modes
+
+The URDF exists only because most robotics and simulation systems cannot load the saved CAD natively. Studio exports it on demand from the saved sources (**Generate and check**); the result is written to a scratch directory you download, never to the project. For a runtime bring-up without the checked-in file, `datum_parameter_studio.lazy_urdf` runs the same capture, export and structural check in-process and hands back the URDF text:
+
+```python
+from datum_parameter_studio.lazy_urdf import bring_up_urdf
+result = bring_up_urdf('PROJECT', 'cad/arm_concept.solidcraft')
+robot_description = result.text          # URDF text exported from the live sources
+```
+
+Or stream it to stdout for a launch pipeline:
+
+```sh
+python -m datum_parameter_studio.lazy_urdf --project PROJECT --assembly cad/arm_concept.solidcraft
+```
+
+Export runs against the saved CAD at evaluation time and is stamped with the source hashes and a freshness result; there is no committed URDF to go stale. It still requires the installed SolidCraft CLI, accepts the same limited SolidCraft/34 profile as the Studio spool, and does not verify physics readiness or source-to-URDF fidelity.
 
 ## C++ example
 
-The [ROS 2 C++ pick-and-place example](examples/ros2_cpp_pick_place/README.md) uses generated dimensions with an `rclcpp` controller and action-based motor simulator. The companion [standalone C++ comparison](examples/cpp-pick-place/README.md) contrasts stale and current dimensions against the same kinematic arm.
+The [ROS 2 C++ pick-and-place example](examples/ros2_cpp_pick_place/README.md) uses generated dimensions with an `rclcpp` controller and action-based motor simulator. The companion [standalone C++ comparison](examples/cpp-pick-place/README.md) contrasts stale and current dimensions against the same kinematic arm, in a compiled-header mode and a lazy mode that reads the CAD at startup with no generated files.
 
 ## Scope
 

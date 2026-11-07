@@ -24,10 +24,23 @@ The destination must not exist. The script creates new native SolidCraft box fil
 
 The stale controller misses the fixed grasp target by 0.0600 m and stops. The generated controller reaches the grasp, lift and place positions within tolerance. Both use the same target coordinates and changed arm. Each program takes an expected result (`fail` or `pass`) and returns nonzero if the observed result differs, so the script is suitable for a reproducibility check.
 
+## Lazy mode
+
+`run.sh` also builds `pick_place_lazy`, a second consumer that needs **no generated artifacts at all**. It links the shared Rust evaluation core as a static library (`rust/include/dparams_lazy.h`) and extracts every dimension from the parameter spec and saved CAD at startup:
+
+| Lazy run | Controller CAD | Physical CAD | Result |
+|---|---|---|---|
+| `pick_place_lazy changed changed pass [evidence.json]` | current | current | grasp, lift and place reached |
+| `pick_place_lazy baseline changed fail [evidence.json]` | stale baseline | current | misses by 0.0600 m |
+
+The same executable runs both scenarios; the only difference between them is which CAD directory it is pointed at. That is the drift guarantee: a lazy runtime cannot silently serve old numbers, because nothing was ever baked in — pointing a run at the wrong CAD directory is the only way to get stale values, and it is explicit on the command line. When the optional evidence path is given, the machine-readable `datum.robot.lazy-evidence/1` record (values, bounds, source and spec SHA-256 hashes) is written for that exact evaluation.
+
+The lazy loader enforces the same runtime rules as the generator: units, bounds and positive dimensions; an out-of-bounds or malformed CAD change stops the run instead of serving stale values. In C++ the plan loses its compile-time `constexpr` — the values live in a small struct after one startup evaluation, so hot loops still see plain doubles. The kinematics, targets, tolerance and output format are shared with the compiled controller (`plan.hpp`).
+
 The output directory retains each saved CAD file, spec, source-hashed JSON manifest, generated C++ header, SHA-256 inventory, compiled executable and result text. This is a self-contained synthetic arm example; it does not claim equivalence to the exported URDF or the Bullet contact demonstration.
 
 ## Code boundary and freshness
 
-`controller.cpp` includes the generated header and uses the named dimensions at the IK boundary. `physical.cpp` includes the changed header in a separate namespace and derives the physical tool length. If you change CAD or the spec, rerun the generator and rebuild before running the controller.
+`controller.cpp` includes the generated header and uses the named dimensions at the IK boundary. `physical.cpp` includes the changed header in a separate namespace and derives the physical tool length. `controller_lazy.cpp` reads the same dimensions from the spec and saved CAD at startup (see Lazy mode). If you change CAD or the spec, rerun the generator and rebuild the compiled consumers before running; the lazy consumer instead fails fast or picks up the new CAD at startup by design.
 
-The generated C++ header contains constants; it **does not perform runtime CAD or spec hash checks**. The JSON manifest records those hashes, and the separate Python `datum_interface` loader can validate them, but this example does not use that loader. This workflow generates both headers immediately before compiling; it is not runtime stale-data protection.
+The generated C++ header contains constants; it **does not perform runtime CAD or spec hash checks**. The JSON manifest records those hashes, the separate Python `datum_interface` loader can validate them, and the lazy C++ core re-extracts from CAD so there is nothing to check against. This workflow generates both headers immediately before compiling; it is not runtime stale-data protection.

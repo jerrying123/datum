@@ -5,7 +5,7 @@ if [[ $# != 1 || -e "$1" ]]; then echo 'Usage: run.sh NEW_OUTPUT_DIRECTORY' >&2;
 for tool in cargo solidcraft-cli c++ sha256sum; do command -v "$tool" >/dev/null || { echo "Missing $tool" >&2; exit 2; }; done
 mkdir -p "$1"
 out=$(cd "$1" && pwd)
-cargo build --locked --manifest-path "$repo/rust/Cargo.toml" --bin datum-params
+cargo build --locked --manifest-path "$repo/rust/Cargo.toml" --bins --lib
 for variant in baseline changed; do
   project="$out/$variant"
   mkdir -p "$project/cad" "$project/datum"
@@ -31,8 +31,18 @@ c++ -std=c++17 -Wall -Wextra -Werror -I "$out/changed/datum" -c "$repo/examples/
 for variant in baseline changed; do
   c++ -std=c++17 -Wall -Wextra -Werror -I "$out/$variant/datum" "$repo/examples/cpp-pick-place/controller.cpp" "$out/physical.o" -o "$out/$variant/pick_place"
 done
+# The lazy controller needs no generated artifacts at all; it links the shared
+# evaluation core and reads the spec and saved CAD at startup.
+c++ -std=c++17 -Wall -Wextra -Werror -I "$repo/rust/include" -I "$repo/examples/cpp-pick-place" \
+  "$repo/examples/cpp-pick-place/controller_lazy.cpp" -o "$out/pick_place_lazy" \
+  -L "$repo/rust/target/debug" -ldatum_params_tools -lpthread -ldl \
+  -Wl,-rpath,"$repo/rust/target/debug"
 printf '\nStale controller, changed physical arm:\n'
 "$out/baseline/pick_place" fail | tee "$out/baseline/result.txt"
 printf '\nGenerated controller, same changed physical arm:\n'
 "$out/changed/pick_place" pass | tee "$out/changed/result.txt"
-printf '\nCAD, source-hashed manifests, generated headers and results: %s\n' "$out"
+printf '\nLazy controller (no generated artifacts), current CAD directory on both sides:\n'
+"$out/pick_place_lazy" "$out/changed" "$out/changed" pass "$out/changed/lazy-evidence.json" | tee "$out/changed/lazy-result.txt"
+printf '\nSame lazy executable pointed at the stale baseline CAD directory:\n'
+"$out/pick_place_lazy" "$out/baseline" "$out/changed" fail "$out/baseline/lazy-evidence.json" | tee "$out/baseline/lazy-result.txt"
+printf '\nCAD, source-hashed manifests, generated headers, lazy evidence and results: %s\n' "$out"
