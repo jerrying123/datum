@@ -196,14 +196,33 @@ int main() {
             shutil.copy2(ROOT / "rust/target/debug/libdatum_params_tools.a", archive_dir / "libdatum_params_tools.a")
             shutil.copytree(EXAMPLE, archive_dir / "example")
 
+            env = dict(os.environ)
+            if not shutil.which("solidcraft-cli"):
+                mock_bin = Path(tmp) / "mock_bin"
+                mock_bin.mkdir(exist_ok=True)
+                mock_cli = mock_bin / "solidcraft-cli"
+                mock_cli.write_text(r"""#!/usr/bin/env python3
+import json, sys, zipfile
+args = sys.argv[1:]
+if '--save' in args:
+    dest = args[args.index('--save') + 1]
+    with open(args[1], 'r') as f:
+        cfg = json.load(f)
+    length = cfg['commands'][0]['params']['length']
+    with zipfile.ZipFile(dest, 'w') as z:
+        z.writestr('document.json', json.dumps({'units': 'mm', 'features': [{'type': 'box', 'length': length}]}))
+""")
+                mock_cli.chmod(0o755)
+                env["PATH"] = f"{mock_bin}:{env.get('PATH', '')}"
+
             out_dir = Path(tmp) / "output"
-            proc = subprocess.run([str(archive_dir / "example/run.sh"), str(out_dir)], capture_output=True, text=True)
+            proc = subprocess.run([str(archive_dir / "example/run.sh"), str(out_dir)], capture_output=True, text=True, env=env)
             self.assertEqual(proc.returncode, 0, f"run.sh failed: {proc.stderr}\n{proc.stdout}")
             self.assertTrue((out_dir / "changed/pick_place").is_file())
             self.assertTrue((out_dir / "pick_place_lazy").is_file())
 
             bench_report = Path(tmp) / "bench.json"
-            bench_proc = subprocess.run(["python3", str(archive_dir / "example/benchmark.py"), str(out_dir / "changed"), "--runs", "2", "--warmup", "0", "--output", str(bench_report)], capture_output=True, text=True)
+            bench_proc = subprocess.run(["python3", str(archive_dir / "example/benchmark.py"), str(out_dir / "changed"), "--runs", "2", "--warmup", "0", "--output", str(bench_report)], capture_output=True, text=True, env=env)
             self.assertEqual(bench_proc.returncode, 0, f"benchmark.py failed: {bench_proc.stderr}\n{bench_proc.stdout}")
             self.assertTrue(bench_report.is_file())
 
