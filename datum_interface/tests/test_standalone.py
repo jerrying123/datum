@@ -164,12 +164,18 @@ class ConformanceTest(unittest.TestCase):
                 'parameters':{'length_m':{'path':'cad/part.solidcraft','pointer':'/features/0/length','source_units':'mm','unit':'m'}},
                 'constants':{'a':{'value':0.1,'unit':'m'},'b':{'value':0.255,'unit':'m'}},
                 'derived':{'signed_offset':{'operation':'difference','inputs':['a','b'],'unit':'m'}}}}}
-            manifest = generate(root, spec)
-            self.assertAlmostEqual(json.loads(manifest.read_text())['parameters']['signed_offset'], -0.155)
-            with self.assertRaisesRegex(ValueError, 'invalid non-positive Datum parameter signed_offset'):
-                load(manifest, worktree='main')
+            (root / 'datum').mkdir(parents=True)
+            spec_path = root / 'datum/spec.json'
+            spec_path.write_text(json.dumps(spec))
+            compiled = subprocess.run(['cargo','run','--quiet','--offline','--manifest-path',str(ROOT/'rust/Cargo.toml'),'--bin','datum-params','--','generate',str(root),str(spec_path),'main',str(root/'datum/parameters.json'),str(root/'datum/parameters.hpp')], capture_output=True, text=True)
+            self.assertNotEqual(compiled.returncode, 0)
+            self.assertIn('invalid non-positive Datum parameter signed_offset', compiled.stderr)
             with self.assertRaisesRegex(ValueError, 'invalid non-positive Datum parameter signed_offset'):
                 load_lazy(root)
+            spec['worktrees']['main']['derived']['signed_offset']['min'] = -1
+            manifest = generate(root, spec)
+            self.assertAlmostEqual(load(manifest).values['signed_offset'], -0.155)
+            self.assertAlmostEqual(load_lazy(root).values['signed_offset'], -0.155)
             # An empty parameter set is rejected by both loaders.
             empty = json.loads(manifest.read_text())
             empty['parameters'] = {}
@@ -203,7 +209,7 @@ class ConformanceTest(unittest.TestCase):
             # Zero-divisor ratio becomes an invalid value, not a raw ZeroDivisionError.
             zero = {'schema':'datum.robot.parameter-spec/2','units':'m','worktrees':{'main':{
                 'parameters':{'length_m':{'path':'cad/part.solidcraft','pointer':'/features/0/length','source_units':'mm','unit':'m'}},
-                'constants':{'zero':{'value':0,'unit':'m'}},
+                'constants':{'zero':{'value':0,'unit':'m','min':0}},
                 'derived':{'bad_ratio':{'operation':'ratio','inputs':['zero','zero'],'unit':'m'}}}}}
             (root / 'datum/spec.json').write_text(json.dumps(zero))
             with self.assertRaisesRegex(ValueError, 'invalid value or bounds for bad_ratio'):
@@ -213,7 +219,7 @@ class ConformanceTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             write_cad(root / 'cad/part.solidcraft', {'units':'mm','features':[{'type':'box','length':160}]})
-            spec = {'schema':'datum.robot.parameter-spec/2','units':'m','sources':['cad/part.solidcraft'],'worktrees':{'main':{
+            spec = {'schema':'datum.robot.parameter-spec/2','units':'m','worktrees':{'main':{
                 'parameters':{'length_m':{'path':'cad/part.solidcraft','pointer':'/features/0/length','source_units':'mm','unit':'m'}}}}}
             (root / 'datum').mkdir(parents=True)
             (root / 'datum/spec.json').write_text(json.dumps(spec))

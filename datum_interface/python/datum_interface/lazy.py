@@ -254,6 +254,8 @@ def evaluate_lazy(project_root, *, worktree="main"):
         if isinstance(value, bool) or not isinstance(value, (int, float)):
             raise ValueError("invalid value or bounds for %s" % name)
         _check_bounds(name, float(value), constant.get("min"), constant.get("max"))
+        if value <= 0 and not (constant.get("min") is not None and constant["min"] <= 0):
+            raise ValueError("invalid non-positive Datum parameter %s" % name)
         values[name] = float(value)
         bounds[name] = _bounds_doc(constant.get("min"), constant.get("max"), constant.get("min") is not None and constant["min"] <= 0.0)
     parameters = _mapping(tree.get("parameters") or {}, "parameters")
@@ -305,6 +307,8 @@ def evaluate_lazy(project_root, *, worktree="main"):
         if definition.get("unit") != "m":
             raise ValueError("derived parameter %s must use canonical unit m" % name)
         _check_bounds(name, value, definition.get("min"), definition.get("max"))
+        if value <= 0 and not (definition.get("min") is not None and definition["min"] <= 0):
+            raise ValueError("invalid non-positive Datum parameter %s" % name)
         values[name] = value
         bounds[name] = _bounds_doc(definition.get("min"), definition.get("max"), definition.get("min") is not None and definition["min"] <= 0.0)
     for source in _list(tree.get("sources"), "worktree sources") + _list(spec.get("sources"), "sources"):
@@ -316,6 +320,9 @@ def evaluate_lazy(project_root, *, worktree="main"):
         if previous is not None and previous != digest:
             raise ValueError("source changed during evaluation: %s" % source)
         hashes[source] = digest
+    for source, previous in hashes.items():
+        if hashlib.sha256(_safe_relative(project, source).read_bytes()).hexdigest() != previous:
+            raise ValueError("source changed during evaluation: %s" % source)
     groups = _mapping(tree.get("groups") or {}, "feature groups")
     for group in sorted(groups):
         names = groups[group]
