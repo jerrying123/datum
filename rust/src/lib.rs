@@ -93,7 +93,7 @@ pub fn evaluate(root:&Path,spec_path:&Path,worktree_name:&str)->Result<Evaluatio
     for(name,c)in &tree.constants{if !ident(name)||c.unit!="m"{bail!("invalid constant {name}")};check_bounds(name,c.value,c.min,c.max)?;values.insert(name.clone(),c.value);bounds.insert(name.clone(),json!({"min":c.min,"max":c.max,"allow_nonpositive":c.min.is_some_and(|x|x<=0.0)}));}
     for(name,m)in &tree.parameters{if !ident(name){bail!("invalid parameter name {name}")}let v=cad_value(root,m,&mut hashes)?;if v<=0.0{bail!("CAD dimension {name} must be positive")};check_bounds(name,v,m.min.map(|x|x*unit_scale(&m.source_units,&m.unit).unwrap()),m.max.map(|x|x*unit_scale(&m.source_units,&m.unit).unwrap()))?;bounds.insert(name.clone(),json!({"min":m.min.map(|x|x*unit_scale(&m.source_units,&m.unit).unwrap()),"max":m.max.map(|x|x*unit_scale(&m.source_units,&m.unit).unwrap())}));values.insert(name.clone(),v);}
     for(name,d)in &tree.derived{if !ident(name){bail!("invalid parameter name {name}")}if d.inputs.is_empty()||d.inputs.iter().any(|i|!values.contains_key(i)){bail!("{name} references a missing input")};let args:Vec<f64>=d.inputs.iter().map(|i|values[i]).collect();let v=match d.operation.as_str(){"sum"=>args.iter().sum(),"product"=>args.iter().product(),"min"=>args.iter().copied().fold(f64::INFINITY,f64::min),"max"=>args.iter().copied().fold(f64::NEG_INFINITY,f64::max),"difference" if args.len()==2=>args[0]-args[1],"ratio" if args.len()==2=>args[0]/args[1],_=>bail!("unsupported operation or arity for {name}")};if d.unit!="m"{bail!("derived parameter {name} must use canonical unit m")};check_bounds(name,v,d.min,d.max)?;bounds.insert(name.clone(),json!({"min":d.min,"max":d.max,"allow_nonpositive":d.min.is_some_and(|x|x<=0.0)}));values.insert(name.clone(),v);}
-    for source in tree.sources.iter().chain(spec.sources.iter()){let data=fs::read(safe_relative(root,source)?)?;hashes.insert(source.clone(),format!("{:x}",Sha256::digest(data)));}
+    for source in tree.sources.iter().chain(spec.sources.iter()){let data=fs::read(safe_relative(root,source)?)?;let digest=format!("{:x}",Sha256::digest(&data));if hashes.get(source).is_some_and(|previous|previous!=&digest){bail!("source changed during evaluation: {source}")}hashes.insert(source.clone(),digest);}
     for(group,names)in &groups{if !ident(group)||names.is_empty()||names.iter().any(|n|!values.contains_key(n)){bail!("invalid group {group}: every referenced parameter must exist")}}
     Ok(Evaluation{
         root:root.to_path_buf(),
@@ -121,6 +121,7 @@ impl Evaluation {
     /// exact values consumed and the source hashes they were extracted from.
     pub fn evidence(&self)->Value{
         let mut evidence=self.manifest();
+        evidence["evidence_schema"]=json!("datum.robot.lazy-evidence/1");
         evidence["mode"]=json!("lazy");
         evidence["spec_path"]=json!(self.spec_path.to_string_lossy());
         evidence

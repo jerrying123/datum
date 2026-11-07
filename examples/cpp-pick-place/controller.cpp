@@ -17,7 +17,7 @@ int main(int argc, char** argv) {
     const double tolerance = 0.015; // illustrative position tolerance, metres
     const ArmPlan plan{p::upper_arm_length_m, p::shoulder_height_m,
                        p::forearm_length_m + p::gripper_palm_length_m + p::finger_length_m / 2};
-    const int reached = run_plan(plan, physical_tool_length(), tolerance, std::cout);
+    const int reached = run_plan(plan, physical_tool_length(), tolerance, std::cout, std::cerr);
     if (reached == 2) return 2;
     const bool passed = (std::string(argv[1]) == "pass");
     return (passed ? reached == 1 : reached == 0) ? 0 : 1;

@@ -1,7 +1,8 @@
 // Shared pick-and-place plan for both controller entry points: the compiled
 // header maintains constexpr constants and the lazy controller supplies values
-// extracted from the saved CAD at startup. Identical kinematics, tolerance and
-// output so both modes are directly comparable.
+// extracted from the saved CAD at startup. Identical kinematics, tolerance,
+// stage output and exit codes so both modes are directly comparable; only the
+// diagnostics stream for an unreachable target differs from data output.
 #pragma once
 #include <cmath>
 #include <iomanip>
@@ -13,8 +14,8 @@ struct Stage { const char* name; double x, z; };
 const Stage STAGES[] = {{"grasp", .25, .185}, {"lift", .25, .235}, {"place", .24, .185}};
 
 // Returns 1 when every stage is reached, 0 after a tolerance miss and 2 when a
-// stage target lies outside controller reach.
-inline int run_plan(const ArmPlan& plan, double actual_tool, double tolerance, std::ostream& out) {
+// stage target lies outside controller reach (reported on `err`, not `out`).
+inline int run_plan(const ArmPlan& plan, double actual_tool, double tolerance, std::ostream& out, std::ostream& err) {
     out << std::fixed << std::setprecision(4)
         << "controller tool=" << plan.tool_length_m << " m; physical tool=" << actual_tool << " m\n";
     bool success = true;
@@ -23,7 +24,7 @@ inline int run_plan(const ArmPlan& plan, double actual_tool, double tolerance, s
         const double cosine = (stage.x*stage.x + height*height - plan.upper_arm_length_m*plan.upper_arm_length_m - plan.tool_length_m*plan.tool_length_m)
             / (2 * plan.upper_arm_length_m * plan.tool_length_m);
         if (cosine < -1.0 || cosine > 1.0) {
-            out << stage.name << " target outside controller reach\n";
+            err << stage.name << " target outside controller reach\n";
             return 2;
         }
         const double elbow = -std::acos(cosine);
