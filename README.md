@@ -53,7 +53,7 @@ Or stream it to stdout for a launch pipeline:
 python -m datum_parameter_studio.lazy_urdf --project PROJECT --assembly cad/arm_concept.solidcraft
 ```
 
-Export runs against the saved CAD at evaluation time and is stamped with the source hashes and a freshness result; there is no committed URDF to go stale. It still requires the installed SolidCraft CLI, accepts the same limited SolidCraft/34 profile as the Studio spool, and does not verify physics readiness or source-to-URDF fidelity.
+Export runs against the saved CAD at evaluation time and is stamped with the source hashes and a freshness result; there is no committed URDF file to go stale, and neither is there for geometry. The bundle also gets every URDF-referenced STL exported from the captured sources at the same moment (the structural check requires those meshes to resolve inside the bundle), a whole-assembly STEP on request from the exporter, and the content-addressed per-part STEP blobs embedded in the saved files, extracted with a SHA-256 name verification before each write. The report's `geometry` section records all of it with hashes. Export still requires the installed SolidCraft CLI, accepts the same limited SolidCraft/34 profile as the Studio spool, and does not verify physics readiness or source-to-URDF fidelity; per-part STEP blobs are not mapped to URDF links, a correspondence that is not established here.
 
 ## C++ example
 

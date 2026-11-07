@@ -9,7 +9,16 @@ URDF file is required or updated, so a node can never bring up a URDF that has
 drifted from its CAD: the output is generated from the live sources at
 evaluation time and stamped with their hashes.
 
-Note document shape: exported URDF text comes from the proprietary exporter in
+Geometry is generated in the same evaluation, so meshes and CAD output cannot
+drift from the URDF either: every URDF-referenced STL is exported from the
+captured sources into the bundle (the structural check rejects a URDF whose
+meshes are missing), a whole-assembly STEP is requested from the exporter, and
+content-addressed per-part STEP blobs embedded in the saved files are extracted
+into the bundle after verifying each blob's SHA-256 against its own name.
+Per-part STEP blobs are not mapped to URDF links; that correspondence is not
+established here.
+
+Note document shape: exported geometry comes from the proprietary exporter in
 an isolated scratch; fidelity to native CAD geometry is the exporter's
 contract, not a runtime guarantee.
 """
@@ -22,10 +31,12 @@ import signal
 import subprocess
 import tempfile
 import time
+import xml.etree.ElementTree as ET
+import zipfile
 
 from datum_parameter_studio.urdf_check import check_urdf
 
-_REPORT_SCHEMA = 'datum.lazy-urdf-report/1'
+_REPORT_SCHEMA = 'datum.lazy-urdf-report/2'
 
 
 def _resolve_executable(name, env_key, role):
@@ -59,6 +70,54 @@ def _run_exporter(child, deadline):
     finally:
         log.close()
     return process.returncode, output
+
+
+def _mesh_bundle_mapping(urdf_path):
+    """Map each URDF-referenced mesh filename to the links that reference it."""
+    mapping = {}
+    for link in ET.parse(urdf_path).getroot().findall('link'):
+        for mesh in link.iter('mesh'):
+            mapping.setdefault(mesh.get('filename', ''), []).append(link.get('name'))
+    return mapping
+
+
+def _extract_part_steps(scratch, sources, steps_dir):
+    """Extract embedded content-addressed STEP blobs from captured sources.
+
+    SolidCraft assemblies store geometry as blobs/<sha256>.step; the entry
+    name is the content hash, so extraction verifies each blob against it.
+    Returns {blob_sha256: source_path} for the kept blobs and a list of
+    {source, reason} diagnostics for skipped files or blobs.
+    """
+    extracted = {}
+    diagnostics = []
+    for name in sources:
+        archive = scratch / name
+        try:
+            with zipfile.ZipFile(archive) as bundle:
+                for entry in bundle.namelist():
+                    filename = entry.rsplit('/', 1)[-1]
+                    stem = filename[:-5] if filename.endswith('.step') else None
+                    if not entry.startswith('blobs/') or not stem or len(stem) != 64 or any(ch not in '0123456789abcdef' for ch in stem):
+                        continue
+                    if stem in extracted:
+                        continue
+                    payload = bundle.read(entry)
+                    if hashlib.sha256(payload).hexdigest() != stem:
+                        diagnostics.append({'source': name, 'reason': 'blob content does not match its %s entry name' % entry.rsplit('/', 1)[-1]})
+                        continue
+                    if not payload.startswith(b'ISO-10303-21;'):
+                        diagnostics.append({'source': name, 'reason': 'blob is not STEP text: %s' % entry.rsplit('/', 1)[-1]})
+                        continue
+                    if len(payload) > 64 * 1024 * 1024:
+                        diagnostics.append({'source': name, 'reason': 'blob exceeds size limit: %s' % entry.rsplit('/', 1)[-1]})
+                        continue
+                    steps_dir.mkdir(parents=True, exist_ok=True)
+                    (steps_dir / ('%s.step' % stem)).write_bytes(payload)
+                    extracted[stem] = name
+        except (zipfile.BadZipFile, KeyError, OSError) as error:
+            diagnostics.append({'source': name, 'reason': 'not an extractable SolidCraft archive: %s' % error})
+    return extracted, diagnostics
 
 
 def bring_up_urdf(project, assembly, *, preflight=None, exporter=None, timeout=120):
@@ -108,23 +167,50 @@ def bring_up_urdf(project, assembly, *, preflight=None, exporter=None, timeout=1
         bundle = Path(holder.name) / 'bundle'
         bundle.mkdir()
         urdf = bundle / 'robot.urdf'
-        returncode, output = _run_exporter([str(exporter), 'run', '--quiet', '--in', str(scratch / assembly), '--out', str(urdf)], time.monotonic() + timeout)
-        if returncode or not urdf.is_file():
-            raise RuntimeError('URDF export failed (%s): %s' % (returncode, output))
+        assembly_step = bundle / 'assembly.step'
+        deadline = time.monotonic() + timeout
+        returncode, output = _run_exporter([str(exporter), 'run', '--quiet', '--in', str(scratch / assembly), '--out', str(urdf), '--out', str(assembly_step)], deadline)
+        if (returncode or not urdf.is_file() or not assembly_step.is_file()):
+            # Exporters without the extra STEP output must still give a fresh
+            # URDF with its meshes; retry and report the STEP as unavailable.
+            returncode, output = _run_exporter([str(exporter), 'run', '--quiet', '--in', str(scratch / assembly), '--out', str(urdf)], deadline)
+            if returncode or not urdf.is_file():
+                raise RuntimeError('URDF export failed (%s): %s' % (returncode, output))
+            assembly_step.unlink(missing_ok=True)
+            geometry_note = 'exporter rejected the whole-assembly STEP output: %s' % output.strip()[-200:]
+        else:
+            geometry_note = ''
         checks = check_urdf(urdf, bundle, synthetic_base='base_link')
         if checks['status'] != 'pass':
             raise ValueError('URDF structural checks failed: %s' % '; '.join(checks['findings']))
+        mesh_links = _mesh_bundle_mapping(urdf)
+        mesh_sha256 = {}
+        for name in mesh_links:
+            path = (urdf.parent / name).resolve()
+            if path.is_file() and path.is_relative_to(bundle):
+                mesh_sha256[name] = hashlib.sha256(path.read_bytes()).hexdigest()
+        blobs, blob_diagnostics = _extract_part_steps(scratch, list(before.get('sources') or []), bundle / 'steps')
         try:
             fresh = scan(project).get('sources') == before.get('sources')
         except Exception:
             fresh = False
         version = subprocess.run([str(exporter), '--version'], capture_output=True, text=True, timeout=10)
+        geometry = {
+            'meshes': mesh_sha256,
+            'mesh_links': mesh_links,
+            'assembly_step': {'path': assembly_step.relative_to(bundle).as_posix(), 'sha256': hashlib.sha256(assembly_step.read_bytes()).hexdigest()} if assembly_step and assembly_step.is_file() else None,
+            'part_steps': {'blobs': {stem: source for stem, source in blobs.items()}, 'diagnostics': blob_diagnostics},
+            'note': 'Meshes and the whole-assembly STEP are exported from the captured sources at evaluation time and live in this bundle, so a URDF cannot reference geometry the CAD no longer produces. Content-addressed per-part STEP blobs were extracted with hash-verified names; blob-to-URDF-link correspondence is not established.',
+        }
+        if geometry_note:
+            geometry['unavailable_reason'] = geometry_note
         report = {
             'schema': _REPORT_SCHEMA,
             'execution': 'complete',
             'capture': {'mode': 'lazy saved-files', 'assembly': assembly, 'hash_algorithm': 'blake3'},
             'exporter': {'version': version.stdout.strip() if version.returncode == 0 else None},
             'outputs_sha256': {path.relative_to(bundle).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest() for path in bundle.rglob('*') if path.is_file()},
+            'geometry': geometry,
             'source_preflight': before,
             'structural_checks': checks,
             'assembly_fidelity': before.get('source_fidelity'),
