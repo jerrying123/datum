@@ -19,6 +19,21 @@ dparam-std up --source-repo "$PWD" --project /path/to/your/cad/project
 
 Open http://localhost:8000. For a phone on your Tailscale network add `--tailscale` and use the URL printed by the launcher. Studio runs in the foreground; use another terminal for other commands. See [Studio instructions](parameter_studio/README.md).
 
+## Agent integration
+
+Coding agents integrating DParams into another project should start with
+[AGENTS.md](AGENTS.md) and the detailed, packaged
+[agent integration guide](datum_interface/python/datum_interface/AGENT_GUIDE.md).
+The guide covers the direct `datum/spec.json` path, both Python modes, generated
+and lazy C++, and the optional Studio workflow. After installation the same
+guide is available from the package:
+
+```sh
+python -c "from datum_interface import agent_guide; print(agent_guide())"
+```
+
+Studio is optional for these integrations; the spec can be authored directly.
+
 The runtime API has two modes. Compiled mode loads a generated file at `PROJECT/datum/parameters.json`, alongside `PROJECT/datum/spec.json`:
 
 ```python
