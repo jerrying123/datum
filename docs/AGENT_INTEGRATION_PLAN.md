@@ -14,8 +14,8 @@ PyPI or native release artifacts are available.
 1. Identify project root, saved SolidCraft sources, language, selected spec worktree
    (a spec key, not a Git operation), and the exact runtime value needed. Inspect
    document.json read-only and validate the selected pointer against the actual file.
-2. Choose the fastest supported integration: Python load_lazy for iteration;
-   checked generated JSON for Python with reviewed artifacts; generated C++17
+2. Choose the fastest supported integration: Python load_runtime for iteration;
+   generated JSON for Python with reviewed artifacts; generated C++17
    header for minimal C++ integration; C ABI static library when startup evaluation
    is desired. Explain prerequisites per path; Docker and SolidCraft CLI are only
    needed for Studio rendering/export, not literal parameter extraction.
@@ -43,7 +43,7 @@ PyPI or native release artifacts are available.
 The implementation adds the root entry point, packaged guide, README discovery,
 package-data metadata, and a bounded deterministic check of documented quickstart
 behavior using synthetic temporary CAD. The check verifies generation, both Python
-loading modes, compiled C++ consumption, stale-file rejection and guide inclusion in
+loading modes, generated C++ header consumption, stale-file rejection and guide inclusion in
 a built wheel, and runs in the existing PR CI rather than a new release pipeline. No
 user CAD or broad dependency changes were made.
 

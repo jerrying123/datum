@@ -1,4 +1,4 @@
-"""Exercise lazy URDF bring-up with stub preflight/exporter executables."""
+"""Exercise runtime URDF bring-up with stub preflight/exporter executables."""
 import hashlib
 import json
 import os
@@ -11,7 +11,8 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'parameter_studio'))
-from datum_parameter_studio.lazy_urdf import bring_up_urdf
+from datum_parameter_studio.lazy_urdf import LazyUrdf
+from datum_parameter_studio.runtime_urdf import RuntimeUrdf, bring_up_urdf
 
 # Stub preflight: scans the passed project directory for the assembly and
 # reports a passing source check with the assembly as the single source.
@@ -47,7 +48,7 @@ endsolid arm
 
 STEP_CONTENT = 'ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION((\'stub\'));;\nEND-ISO-10303-21;\n'
 
-MINIMAL_URDF = '''<robot name="lazy">
+MINIMAL_URDF = '''<robot name="runtime">
   <link name="base_link"/>
   <link name="arm">
     <inertial>
@@ -214,7 +215,10 @@ def write_source_with_blobs(path):
     return good, decoy_name
 
 
-class LazyUrdfTest(unittest.TestCase):
+class RuntimeUrdfTest(unittest.TestCase):
+    def test_legacy_name_is_a_compatibility_alias(self):
+        self.assertIs(LazyUrdf, RuntimeUrdf)
+
     def make_project(self, root, assembly='cad/robot.solidcraft', blobs=False):
         target = root / assembly
         if blobs:
@@ -238,14 +242,14 @@ class LazyUrdfTest(unittest.TestCase):
             preflight, exporter = self.stubs(root)
             self.make_project(root)
             with bring_up_urdf(root, 'cad/robot.solidcraft', preflight=preflight, exporter=exporter) as result:
-                self.assertEqual('<robot name="lazy">', result.text.splitlines()[0])
+                self.assertEqual('<robot name="runtime">', result.text.splitlines()[0])
                 self.assertEqual(result.sha256, hashlib.sha256(result.text.encode()).hexdigest())
                 report = result.report
                 self.assertEqual(report['execution'], 'complete')
                 self.assertEqual(report['structural_checks']['status'], 'pass')
                 self.assertEqual(report['freshness'], 'current')
-                self.assertEqual(report['capture']['mode'], 'lazy saved-files')
-                self.assertEqual(report['schema'], 'datum.lazy-urdf-report/3')
+                self.assertEqual(report['capture']['mode'], 'runtime saved-files')
+                self.assertEqual(report['schema'], 'datum.runtime-urdf-report/3')
                 self.assertEqual(report['outputs_sha256']['robot.urdf'], hashlib.sha256(result.text.encode()).hexdigest())
                 # Geometry lives in the bundle and is reported with hashes.
                 geometry = report['geometry']
@@ -375,7 +379,7 @@ class LazyUrdfTest(unittest.TestCase):
             evidence = root / 'evidence/urdf-report.json'
             bundle = root / 'cli-bundle'
             result = subprocess.run(
-                [sys.executable, '-m', 'datum_parameter_studio.lazy_urdf',
+                [sys.executable, '-m', 'datum_parameter_studio.runtime_urdf',
                  '--project', str(root), '--assembly', 'cad/robot.solidcraft',
                  '--preflight', str(preflight), '--exporter', str(exporter),
                  '--evidence', str(evidence), '--bundle-out', str(bundle)],
@@ -383,9 +387,9 @@ class LazyUrdfTest(unittest.TestCase):
                 env={'PYTHONPATH': str(ROOT / 'parameter_studio'), 'PATH': '/usr/bin:/bin'},
             )
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(result.stdout.splitlines()[0], '<robot name="lazy">')
+            self.assertEqual(result.stdout.splitlines()[0], '<robot name="runtime">')
             report = json.loads(result.stderr.splitlines()[-1])
-            self.assertEqual(report['schema'], 'datum.lazy-urdf-report/3')
+            self.assertEqual(report['schema'], 'datum.runtime-urdf-report/3')
             saved = json.loads(evidence.read_text())
             self.assertEqual(saved['outputs_sha256']['robot.urdf'], report['outputs_sha256']['robot.urdf'])
             self.assertEqual(saved['geometry']['meshes'], report['geometry']['meshes'])

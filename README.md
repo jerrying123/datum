@@ -14,7 +14,7 @@ The Python runtime loader (`datum_interface`) is published on PyPI as `datum-cad
 pip install datum-cad-parameters
 ```
 
-This provides the `datum_interface` package (`load` and `load_lazy`) for consuming generated manifests or evaluating CAD lazily in Python without compiling Rust or cloning the repository.
+This provides the `datum_interface` package (`load_generated` and `load_runtime`) for consuming generated manifests or evaluating saved CAD at runtime in Python without compiling Rust or cloning the repository. The early `load` and `load_lazy` names remain as deprecated aliases.
 
 ### Native CLI & C++ static library (GitHub Release archive)
 
@@ -29,7 +29,7 @@ cd dparams
 
 The self-contained archive includes:
 - `datum-params` (or `datum-params.exe` on Windows): standalone CLI executable to extract JSON manifests and C++ headers. You can move it to `/usr/local/bin` or place it on your `PATH`.
-- `include/dparams_lazy.h`: C ABI / C++ header for runtime lazy CAD evaluation.
+- `include/dparams_runtime.h`: C ABI / C++ header for runtime CAD evaluation. The legacy `include/dparams_lazy.h` compatibility header is also included.
 - `libdatum_params_tools.a` (or `datum_params_tools.lib` on Windows): precompiled static library.
 - `example/`: bundled C++ kinematic pick-and-place comparison example that runs directly from the archive without Rust or Cargo.
 
@@ -68,7 +68,7 @@ Coding agents integrating DParams into another project should start with
 [AGENTS.md](AGENTS.md) and the detailed, packaged
 [agent integration guide](datum_interface/python/datum_interface/AGENT_GUIDE.md).
 The guide covers the direct `datum/spec.json` path, both Python modes, generated
-and lazy C++, and the optional Studio workflow. After installation the same
+and runtime C++, and the optional Studio workflow. After installation the same
 guide is available from the package:
 
 ```sh
@@ -77,30 +77,32 @@ python -c "from datum_interface import agent_guide; print(agent_guide())"
 
 Studio is optional for these integrations; the spec can be authored directly.
 
-The runtime API has two modes. Compiled mode loads a generated file at `PROJECT/datum/parameters.json`, alongside `PROJECT/datum/spec.json`:
+The API has two modes. Generated mode reads `PROJECT/datum/parameters.json`, which sits beside `PROJECT/datum/spec.json`:
 
 ```python
-from datum_interface import load
-params = load('PROJECT/datum/parameters.json', worktree='main')
+from datum_interface import load_generated
+params = load_generated('PROJECT/datum/parameters.json', worktree='main')
 print(params['forearm_length_m'])
 ```
 
-It verifies the spec and saved CAD hashes: keep the exact downloaded spec beside the manifest. Lazy mode gives the same Parameters object without any generated artifacts by re-reading the spec and saved CAD at startup. A failed evaluation raises instead of returning values, so a run cannot fall back to an earlier evaluation; concurrent edits during evaluation are detected by the source-hash check, not blocked, and a process keeps the values it read at startup:
+It verifies the spec and saved CAD hashes: keep the exact downloaded spec beside the manifest. Runtime mode gives the same Parameters object without any generated artifacts by evaluating the spec and saved CAD eagerly at startup. A failed evaluation raises instead of returning values, so a run cannot fall back to an earlier evaluation; concurrent edits during evaluation are detected by the source-hash check, not blocked, and a process keeps the values it read at startup:
 
 ```python
-from datum_interface import load_lazy
-params = load_lazy('PROJECT', worktree='main')            # no parameters.json needed
-params = load_lazy('PROJECT', evidence='evidence/lazy.json')  # machine-readable record
+from datum_interface import load_runtime
+params = load_runtime('PROJECT', worktree='main')              # no parameters.json needed
+params = load_runtime('PROJECT', evidence='evidence/runtime.json')  # machine-readable record
 ```
 
-The C++ side has the same choice: link the compiled constants from a generated `parameters.hpp`, or include `rust/include/dparams_lazy.h` (or `include/dparams_lazy.h` in the release archive) and link the `libdatum_params_tools` static library and read the values at startup. The Rust generator and C ABI share one evaluation core; the Python loader is a separate implementation kept in step by cross-mode conformance tests. Snapshot-based generation belongs to the optional Datum integration and is not implemented in this standalone package.
+The C++ side has the same choice: include a generated `parameters.hpp`, or include `rust/include/dparams_runtime.h` (or `include/dparams_runtime.h` in the release archive) and link the `libdatum_params_tools` static library and read the values at startup. The Rust generator and C ABI share one evaluation core; the Python loader is a separate implementation kept in step by cross-mode conformance tests. Snapshot-based generation belongs to the optional Datum integration and is not implemented in this standalone package.
+
+Early 0.1.0 `load_lazy` and `dparams_lazy_*` names remain as deprecated compatibility aliases; new code should use the runtime names.
 
 ## URDF export modes
 
-The URDF exists only because most robotics and simulation systems cannot load the saved CAD natively. Studio exports it on demand from the saved sources (**Generate and check**); the result is written to a scratch directory you download, never to the project. For a runtime bring-up without the checked-in file, `datum_parameter_studio.lazy_urdf` runs the same capture preflight and structural checker in-process, validates the output bundle for symlinks, containment and size, and hands back the URDF text plus its export bundle:
+The URDF exists only because most robotics and simulation systems cannot load the saved CAD natively. Studio exports it on demand from the saved sources (**Generate and check**); the result is written to a scratch directory you download, never to the project. For a runtime bring-up without the checked-in file, `datum_parameter_studio.runtime_urdf` runs the same capture preflight and structural checker in-process, validates the output bundle for symlinks, containment and size, and hands back the URDF text plus its export bundle:
 
 ```python
-from datum_parameter_studio.lazy_urdf import bring_up_urdf
+from datum_parameter_studio.runtime_urdf import bring_up_urdf
 with bring_up_urdf('PROJECT', 'cad/arm_concept.solidcraft') as result:
     robot_description = result.text      # URDF text exported from the live sources
     result.write_bundle('runtime/robot') # URDF + meshes + STEP files, self-contained
@@ -109,14 +111,14 @@ with bring_up_urdf('PROJECT', 'cad/arm_concept.solidcraft') as result:
 Or stream it to stdout for a launch pipeline (add `--bundle-out DIR` for the geometry):
 
 ```sh
-python -m datum_parameter_studio.lazy_urdf --project PROJECT --assembly cad/arm_concept.solidcraft
+python -m datum_parameter_studio.runtime_urdf --project PROJECT --assembly cad/arm_concept.solidcraft
 ```
 
 Export runs against the saved CAD at evaluation time and is stamped with the source hashes and a freshness result; there is no committed URDF file to go stale. The bundle holds the exporter's current output for the captured inputs: every URDF-referenced STL (the structural check requires those meshes to resolve inside the bundle), a whole-assembly STEP on request from the exporter, and the content-addressed per-part STEP blobs embedded in the saved files, extracted with a SHA-256 name verification before each write. The report's `geometry` section records all of it with hashes. Exporter provenance and fidelity to native CAD geometry are not verified, per-part STEP blobs are not mapped to URDF links, and this path has no cancellation channel or worker heartbeat. Export still requires the installed SolidCraft CLI and accepts the same limited SolidCraft/34 profile as the Studio spool; physics readiness and source-to-URDF equivalence are not verified.
 
 ## C++ example
 
-The [ROS 2 C++ pick-and-place example](examples/ros2_cpp_pick_place/README.md) uses generated dimensions with an `rclcpp` controller and action-based motor simulator. The companion [standalone C++ comparison](examples/cpp-pick-place/README.md) contrasts stale and current dimensions against the same kinematic arm, in a compiled-header mode and a lazy mode that reads the CAD at startup with no generated files. It is bundled in the native release archive as `example/` and runs with the precompiled CLI and static library without Rust or Cargo.
+The [ROS 2 C++ pick-and-place example](examples/ros2_cpp_pick_place/README.md) uses generated dimensions with an `rclcpp` controller and action-based motor simulator. The companion [standalone C++ comparison](examples/cpp-pick-place/README.md) contrasts stale and current dimensions against the same kinematic arm, in a generated-header mode and a runtime mode that reads the CAD at startup with no generated files. It is bundled in the native release archive as `example/` and runs with the precompiled CLI and static library without Rust or Cargo.
 
 ## Performance
 

@@ -13,7 +13,7 @@ import zipfile
 ROOT = Path(__file__).resolve().parents[2]
 GUIDE = ROOT / 'datum_interface/python/datum_interface/AGENT_GUIDE.md'
 sys.path.insert(0, str(ROOT / 'datum_interface/python'))
-from datum_interface import agent_guide, load, load_lazy
+from datum_interface import agent_guide, load_generated, load_runtime
 
 
 def write_cad(path, length_mm, units='mm'):
@@ -61,19 +61,19 @@ class AgentGuideTest(unittest.TestCase):
             spec_path = write_project(root)
             manifest_path = generate(root, spec_path)
 
-            compiled = load(manifest_path, worktree='main')
-            lazy = load_lazy(root, worktree='main', evidence=root / 'evidence/lazy.json')
+            generated = load_generated(manifest_path, worktree='main')
+            runtime = load_runtime(root, worktree='main', evidence=root / 'evidence/runtime.json')
 
-            self.assertAlmostEqual(compiled['forearm_length_m'], 0.16)
-            self.assertAlmostEqual(compiled['reach_m'], 0.27)
-            self.assertEqual(compiled.group('arm'), {'forearm_length_m': 0.16, 'reach_m': 0.27})
-            self.assertEqual(compiled.manifest['parameters'], lazy.manifest['parameters'])
-            self.assertEqual(compiled.manifest['sources_sha256'], lazy.manifest['sources_sha256'])
-            evidence = json.loads((root / 'evidence/lazy.json').read_text())
-            self.assertEqual(evidence['mode'], 'lazy')
-            self.assertEqual(evidence['evidence_schema'], 'datum.robot.lazy-evidence/1')
+            self.assertAlmostEqual(generated['forearm_length_m'], 0.16)
+            self.assertAlmostEqual(generated['reach_m'], 0.27)
+            self.assertEqual(generated.group('arm'), {'forearm_length_m': 0.16, 'reach_m': 0.27})
+            self.assertEqual(generated.manifest['parameters'], runtime.manifest['parameters'])
+            self.assertEqual(generated.manifest['sources_sha256'], runtime.manifest['sources_sha256'])
+            evidence = json.loads((root / 'evidence/runtime.json').read_text())
+            self.assertEqual(evidence['mode'], 'runtime')
+            self.assertEqual(evidence['evidence_schema'], 'datum.robot.runtime-evidence/1')
 
-    def test_compiled_artifact_rejects_stale_spec_and_cad(self):
+    def test_generated_artifact_rejects_stale_spec_and_cad(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             spec_path = write_project(root)
@@ -84,17 +84,17 @@ class AgentGuideTest(unittest.TestCase):
             changed['worktrees']['main']['groups']['all'] = ['forearm_length_m']
             spec_path.write_text(json.dumps(changed) + '\n', encoding='utf-8')
             with self.assertRaisesRegex(ValueError, 'specification changed'):
-                load(manifest_path, worktree='main')
+                load_generated(manifest_path, worktree='main')
             spec_path.write_text(original_spec, encoding='utf-8')
 
             write_cad(root / 'cad/arm.solidcraft', 170)
             with self.assertRaisesRegex(ValueError, 'CAD source changed'):
-                load(manifest_path, worktree='main')
-            # Lazy mode has no stale artifact: it reads the current valid CAD.
-            self.assertAlmostEqual(load_lazy(root)['forearm_length_m'], 0.17)
+                load_generated(manifest_path, worktree='main')
+            # Runtime mode has no stale artifact: it reads the current valid CAD.
+            self.assertAlmostEqual(load_runtime(root)['forearm_length_m'], 0.17)
 
             generate(root, spec_path)
-            self.assertAlmostEqual(load(manifest_path, worktree='main')['forearm_length_m'], 0.17)
+            self.assertAlmostEqual(load_generated(manifest_path, worktree='main')['forearm_length_m'], 0.17)
 
     def test_generated_cpp_header_exposes_the_documented_namespace(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -123,7 +123,7 @@ class AgentGuideTest(unittest.TestCase):
             self.assertAlmostEqual(values[0], 0.16)
             self.assertAlmostEqual(values[1], 0.27)
 
-    def test_lazy_cpp_abi_needs_no_generated_artifacts(self):
+    def test_runtime_cpp_abi_needs_no_generated_artifacts(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             write_project(root)
@@ -132,29 +132,29 @@ class AgentGuideTest(unittest.TestCase):
                 'cargo', 'build', '--quiet', '--locked',
                 '--manifest-path', str(ROOT / 'rust/Cargo.toml'), '--lib',
             ], check=True)
-            source = root / 'lazy.cpp'
+            source = root / 'runtime.cpp'
             source.write_text(
-                '#include "dparams_lazy.h"\n'
+                '#include "dparams_runtime.h"\n'
                 '#include <cstdio>\n'
                 'int main(int argc, char** argv) {\n'
                 '    if (argc != 3) return 2;\n'
-                '    if (dparams_lazy_eval(argv[1], argv[2], "main") != 0) {\n'
+                '    if (dparams_runtime_eval(argv[1], argv[2], "main") != 0) {\n'
                 '        char error[512] = {0};\n'
-                '        if (dparams_lazy_error(error, sizeof error) != 0) {\n'
+                '        if (dparams_runtime_error(error, sizeof error) != 0) {\n'
                 '            std::snprintf(error, sizeof error, "Datum evaluation failed");\n'
                 '        }\n'
                 '        std::fprintf(stderr, "%s\\n", error);\n'
                 '        return 1;\n'
                 '    }\n'
                 '    double reach = 0.0;\n'
-                '    if (dparams_lazy_get("reach_m", &reach) != 0) return 3;\n'
+                '    if (dparams_runtime_get("reach_m", &reach) != 0) return 3;\n'
                 '    std::printf("%.6f\\n", reach);\n'
-                '    dparams_lazy_release();\n'
+                '    dparams_runtime_release();\n'
                 '    return 0;\n'
                 '}\n',
                 encoding='utf-8',
             )
-            executable = root / 'lazy'
+            executable = root / 'runtime'
             subprocess.run([
                 'c++', '-std=c++17', '-Wall', '-Wextra', '-Werror',
                 '-I', str(ROOT / 'rust/include'), str(source), '-o', str(executable),
@@ -188,6 +188,8 @@ class AgentGuideTest(unittest.TestCase):
             with zipfile.ZipFile(wheels[0]) as archive:
                 names = archive.namelist()
                 self.assertIn('datum_interface/AGENT_GUIDE.md', names)
+                self.assertIn('datum_interface/runtime.py', names)
+                self.assertIn('datum_interface/lazy.py', names)
                 archive.extractall(unpacked)
 
             project = root / 'project'
@@ -195,8 +197,8 @@ class AgentGuideTest(unittest.TestCase):
             probe = (
                 'import pathlib, sys\n'
                 'import datum_interface\n'
-                'from datum_interface import agent_guide, load_lazy\n'
-                'params = load_lazy(sys.argv[1])\n'
+                'from datum_interface import agent_guide, load_runtime\n'
+                'params = load_runtime(sys.argv[1])\n'
                 'print(pathlib.Path(datum_interface.__file__).resolve())\n'
                 'print(params["forearm_length_m"])\n'
                 'print(agent_guide().splitlines()[0])\n'

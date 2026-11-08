@@ -1,7 +1,7 @@
-//! C ABI over lazy evaluation so C++ (and other FFI languages) can load CAD
+//! C ABI over runtime evaluation so C++ (and other FFI languages) can load CAD
 //! parameter values at startup without pre-generated artifacts.
 //!
-//! The compiled-artifact CLI and this C ABI call the same Rust `evaluate`
+//! The generated-artifact CLI and this C ABI call the same Rust `evaluate`
 //! function, so those two modes agree by construction whenever the spec and CAD
 //! sources are unchanged. The Python loader is a separate implementation and is
 //! kept in step by conformance tests, not by construction.
@@ -11,10 +11,10 @@
 //! value is the required buffer size in bytes including the NUL, meaning the
 //! call wrote nothing and should be retried with a larger buffer (pass a null
 //! buffer and length 0 to query the size). Errors are formatted with
-//! `dparams_lazy_error`. A failed `dparams_lazy_eval` clears any active session,
+//! `dparams_runtime_error`. A failed `dparams_runtime_eval` clears any active session,
 //! so a caller can never fall back to values from an earlier evaluation. The
 //! session and error slots are process-global: call these functions from one
-//! thread at a time, and release the session with `dparams_lazy_release`.
+//! thread at a time, and release the session with `dparams_runtime_release`.
 use crate::Evaluation;
 use std::{
     collections::BTreeMap,
@@ -54,7 +54,7 @@ fn guarded<T>(fallback: T, body: impl FnOnce() -> T) -> T {
     match catch_unwind(AssertUnwindSafe(body)) {
         Ok(value) => value,
         Err(_) => {
-            set_error("internal panic in the Datum lazy evaluation core".into());
+            set_error("internal panic in the Datum runtime evaluation core".into());
             fallback
         }
     }
@@ -90,7 +90,7 @@ fn with_session<T>(body: impl FnOnce(&Session) -> Result<T, String>, on_error: i
     let mut state = lock();
     let outcome = match state.session.as_ref() {
         Some(session) => body(session),
-        None => Err("no lazy evaluation is active; call dparams_lazy_eval first".into()),
+        None => Err("no runtime evaluation is active; call dparams_runtime_eval first".into()),
     };
     match outcome {
         Ok(value) => {
@@ -105,11 +105,11 @@ fn with_session<T>(body: impl FnOnce(&Session) -> Result<T, String>, on_error: i
 }
 
 /// Evaluates the spec against the saved CAD sources and installs the result as
-/// the active lazy session. Returns 0 on success, -1 on error. A failed
+/// the active runtime session. Returns 0 on success, -1 on error. A failed
 /// evaluation clears the active session; the error text is available from
-/// `dparams_lazy_error`.
+/// `dparams_runtime_error`.
 #[no_mangle]
-pub extern "C" fn dparams_lazy_eval(project: *const c_char, spec: *const c_char, worktree: *const c_char) -> i32 {
+pub extern "C" fn dparams_runtime_eval(project: *const c_char, spec: *const c_char, worktree: *const c_char) -> i32 {
     guarded(-1, || {
         let outcome = (|| -> Result<Evaluation, String> {
             let project = cstr(project, "project")?;
@@ -140,20 +140,20 @@ pub extern "C" fn dparams_lazy_eval(project: *const c_char, spec: *const c_char,
 
 /// Count of parameters in the active session. -1 when no session is active.
 #[no_mangle]
-pub extern "C" fn dparams_lazy_count() -> i32 {
+pub extern "C" fn dparams_runtime_count() -> i32 {
     guarded(-1, || with_session(|session| Ok(session.order.len() as i32), || -1))
 }
 
 /// Parameter name for an ordinal position in the active session.
 #[no_mangle]
-pub extern "C" fn dparams_lazy_name(index: i32, buffer: *mut c_char, len: usize) -> i32 {
+pub extern "C" fn dparams_runtime_name(index: i32, buffer: *mut c_char, len: usize) -> i32 {
     guarded(-1, || {
         with_session(
             |session| {
                 let name = usize::try_from(index)
                     .ok()
                     .and_then(|index| session.order.get(index))
-                    .ok_or("lazy session parameter index out of range")?;
+                    .ok_or("runtime session parameter index out of range")?;
                 Ok(write_string(buffer, len, name))
             },
             || -1,
@@ -163,7 +163,7 @@ pub extern "C" fn dparams_lazy_name(index: i32, buffer: *mut c_char, len: usize)
 
 /// Parameter value by name into `*out`. 0 on success, -1 on error.
 #[no_mangle]
-pub extern "C" fn dparams_lazy_get(name: *const c_char, out: *mut f64) -> i32 {
+pub extern "C" fn dparams_runtime_get(name: *const c_char, out: *mut f64) -> i32 {
     guarded(-1, || {
         if out.is_null() {
             set_error("output pointer is null".into());
@@ -177,7 +177,7 @@ pub extern "C" fn dparams_lazy_get(name: *const c_char, out: *mut f64) -> i32 {
                         unsafe { *out = *value };
                         Ok(0)
                     }
-                    None => Err(format!("unknown lazy parameter {name}")),
+                    None => Err(format!("unknown runtime parameter {name}")),
                 }
             },
             || -1,
@@ -187,14 +187,14 @@ pub extern "C" fn dparams_lazy_get(name: *const c_char, out: *mut f64) -> i32 {
 
 /// SHA-256 of a recorded source (CAD or utility source) by its spec-relative name.
 #[no_mangle]
-pub extern "C" fn dparams_lazy_source_hash(name: *const c_char, buffer: *mut c_char, len: usize) -> i32 {
+pub extern "C" fn dparams_runtime_source_hash(name: *const c_char, buffer: *mut c_char, len: usize) -> i32 {
     guarded(-1, || {
         with_session(
             |session| {
                 let name = cstr(name, "source name")?;
                 match session.hashes.get(&name) {
                     Some(hash) => Ok(write_string(buffer, len, hash)),
-                    None => Err(format!("unknown lazy source {name}")),
+                    None => Err(format!("unknown runtime source {name}")),
                 }
             },
             || -1,
@@ -204,17 +204,17 @@ pub extern "C" fn dparams_lazy_source_hash(name: *const c_char, buffer: *mut c_c
 
 /// Selected worktree of the active session.
 #[no_mangle]
-pub extern "C" fn dparams_lazy_worktree(buffer: *mut c_char, len: usize) -> i32 {
+pub extern "C" fn dparams_runtime_worktree(buffer: *mut c_char, len: usize) -> i32 {
     guarded(-1, || {
         with_session(|session| Ok(write_string(buffer, len, &session.evaluation.worktree)), || -1)
     })
 }
 
-/// Writes the machine-readable lazy-evidence record (evidence schema, mode,
+/// Writes the machine-readable runtime-evidence record (evidence schema, mode,
 /// values, bounds, source and spec SHA-256 hashes) to `path`, atomically via a
 /// temporary file in the same directory. 0 on success, -1 on error.
 #[no_mangle]
-pub extern "C" fn dparams_lazy_evidence(path: *const c_char) -> i32 {
+pub extern "C" fn dparams_runtime_evidence(path: *const c_char) -> i32 {
     guarded(-1, || {
         with_session(
             |session| {
@@ -246,9 +246,9 @@ pub extern "C" fn dparams_lazy_evidence(path: *const c_char) -> i32 {
 
 /// Last error message, or an empty string when there is no recorded error.
 /// Reading the error does not clear it; a successful session call or
-/// `dparams_lazy_release` clears it.
+/// `dparams_runtime_release` clears it.
 #[no_mangle]
-pub extern "C" fn dparams_lazy_error(buffer: *mut c_char, len: usize) -> i32 {
+pub extern "C" fn dparams_runtime_error(buffer: *mut c_char, len: usize) -> i32 {
     guarded(-1, || {
         let message = lock().error.clone().unwrap_or_default();
         write_string(buffer, len, &message)
@@ -258,10 +258,58 @@ pub extern "C" fn dparams_lazy_error(buffer: *mut c_char, len: usize) -> i32 {
 /// Releases the active session and the recorded error. Values already copied
 /// out stay valid; only session-based calls start failing.
 #[no_mangle]
-pub extern "C" fn dparams_lazy_release() {
+pub extern "C" fn dparams_runtime_release() {
     guarded((), || {
         let mut state = lock();
         state.session = None;
         state.error = None;
     })
+}
+
+// Deprecated compatibility symbols from the 0.1.0 preview API. They forward to
+// the runtime-named implementation so already-compiled C callers keep working.
+// New code should include `dparams_runtime.h` and use `dparams_runtime_*`.
+#[no_mangle]
+pub extern "C" fn dparams_lazy_eval(project: *const c_char, spec: *const c_char, worktree: *const c_char) -> i32 {
+    dparams_runtime_eval(project, spec, worktree)
+}
+
+#[no_mangle]
+pub extern "C" fn dparams_lazy_count() -> i32 {
+    dparams_runtime_count()
+}
+
+#[no_mangle]
+pub extern "C" fn dparams_lazy_name(index: i32, buffer: *mut c_char, len: usize) -> i32 {
+    dparams_runtime_name(index, buffer, len)
+}
+
+#[no_mangle]
+pub extern "C" fn dparams_lazy_get(name: *const c_char, out: *mut f64) -> i32 {
+    dparams_runtime_get(name, out)
+}
+
+#[no_mangle]
+pub extern "C" fn dparams_lazy_source_hash(name: *const c_char, buffer: *mut c_char, len: usize) -> i32 {
+    dparams_runtime_source_hash(name, buffer, len)
+}
+
+#[no_mangle]
+pub extern "C" fn dparams_lazy_worktree(buffer: *mut c_char, len: usize) -> i32 {
+    dparams_runtime_worktree(buffer, len)
+}
+
+#[no_mangle]
+pub extern "C" fn dparams_lazy_evidence(path: *const c_char) -> i32 {
+    dparams_runtime_evidence(path)
+}
+
+#[no_mangle]
+pub extern "C" fn dparams_lazy_error(buffer: *mut c_char, len: usize) -> i32 {
+    dparams_runtime_error(buffer, len)
+}
+
+#[no_mangle]
+pub extern "C" fn dparams_lazy_release() {
+    dparams_runtime_release()
 }

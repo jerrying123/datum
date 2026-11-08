@@ -14,7 +14,7 @@
   },
   "scope": "Python process start through one load and JSON output; no simulation.",
   "end_to_end_process_ms": {
-    "manifest": {
+    "generated": {
       "samples_ms": [
         66.848606,
         64.619631,
@@ -51,7 +51,7 @@
       "min_ms": 60.087463,
       "max_ms": 66.88795
     },
-    "lazy": {
+    "runtime": {
       "samples_ms": [
         62.181733,
         62.294135,

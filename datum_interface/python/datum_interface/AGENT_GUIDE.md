@@ -14,15 +14,15 @@ workflow below is complete without it.
 
 | Need | Use | Requires |
 |---|---|---|
-| Python values now, no generated files | `datum_interface.load_lazy(PROJECT)` | Python package, `datum/spec.json`, saved CAD |
-| Python with a reviewed/committed artifact | `datum_interface.load(PROJECT/datum/parameters.json)` | Python package, generator, spec, saved CAD |
-| C++17 compile-time constants | generated `parameters.hpp` | generator |
-| C++17 values read at startup with no generated files | `dparams_lazy.h` plus the static library | Rust toolchain to build the library |
+| Python values now, no generated files | `datum_interface.load_runtime(PROJECT)` | Python package, `datum/spec.json`, saved CAD |
+| Python with a reviewed/committed artifact | `datum_interface.load_generated(PROJECT/datum/parameters.json)` | Python package, generator, spec, saved CAD |
+| C++17 generated constants | generated `parameters.hpp` | generator |
+| C++17 values read at startup with no generated files | `dparams_runtime.h` plus the static library | Rust toolchain to build the library |
 | ROS 2 parameters | Python loader plus `ros_parameters()` / `ros_yaml()` | Python package |
-| URDF export | Studio or `datum_parameter_studio.lazy_urdf` | SolidCraft CLI; Docker only for Studio |
+| URDF export | Studio or `datum_parameter_studio.runtime_urdf` | SolidCraft CLI; Docker only for Studio |
 
-Start with `load_lazy` unless the user explicitly wants generated artifacts
-checked into the project or has a build step that needs compile-time constants.
+Start with `load_runtime` unless the user explicitly wants generated artifacts
+checked into the project or has a build step that needs generated constants.
 Do **not** start Studio just to do a code integration. Studio is for the user to
 pick dimensions visually; the same spec can be written directly.
 
@@ -157,7 +157,7 @@ Metadata keys outside the reserved fields are copied into the manifest
   inside the project root.
 - Values and bounds must be finite.
 
-## 4. Generate and consume compiled artifacts
+## 4. Generated mode: write and consume artifacts
 
 Create this layout, keeping the spec and the manifest together:
 
@@ -198,15 +198,15 @@ rebuild C++ consumers whenever it runs.
 ### Python: checked manifest
 
 ```python
-from datum_interface import load
+from datum_interface import load_generated
 
-params = load("PROJECT/datum/parameters.json", worktree="main")
+params = load_generated("PROJECT/datum/parameters.json", worktree="main")
 print(params["forearm_length_m"])   # 0.16
 print(params["reach_m"])            # 0.27
 print(params.group("arm"))
 ```
 
-`load()` resolves the project root as the parent of `datum/`, so the manifest
+`load_generated()` resolves the project root as the parent of `datum/`, so the manifest
 must be at `PROJECT/datum/parameters.json`. It checks:
 
 - the schema and canonical units;
@@ -240,29 +240,32 @@ CAD or spec hash checks; it is a build artifact. Regenerate it and rebuild after
 CAD or spec changes. Values are copied at process start and do not update while
 the process runs.
 
-## 5. Lazy mode: read spec and CAD at startup
+## 5. Runtime mode: read spec and CAD at startup
 
-Lazy mode removes generated artifacts. The trade-off is startup parsing of the
-spec and CAD; the benefit is that a changed CAD file is either read fresh or
-rejected by validation, never served from an old manifest.
+Runtime mode removes the need for generated artifacts. The trade-off is startup
+parsing of the spec and CAD; the benefit is that a changed CAD file is either
+read fresh or rejected by validation, never served from an old manifest.
 
 ### Python
 
 ```python
-from datum_interface import load_lazy
+from datum_interface import load_runtime
 
-params = load_lazy("PROJECT", worktree="main")
+params = load_runtime("PROJECT", worktree="main")
 print(params["forearm_length_m"])
 
 # Optional machine-readable record of the exact evaluation.
-params = load_lazy("PROJECT", evidence="evidence/lazy.json")
+params = load_runtime("PROJECT", evidence="evidence/runtime.json")
 ```
 
-`load_lazy()` needs only `PROJECT/datum/spec.json` and the saved CAD. It uses the
-same value contract as `load()` and raises `ValueError` on any failure. It reads
+`load_runtime()` needs only `PROJECT/datum/spec.json` and the saved CAD. It uses the
+same value contract as `load_generated()` and raises `ValueError` on any failure. It reads
 the sources again after evaluation to detect a file that changed mid-read. The
 `evidence` path is resolved from the process working directory, not from the
 project root.
+
+`load_lazy` and the `dparams_lazy_*` C symbols remain as deprecated
+aliases for early 0.1.0 callers; new code should use the runtime names.
 
 ### C++ and other FFI consumers
 
@@ -272,19 +275,19 @@ Build the static library and use the C ABI header:
 cargo build --release --manifest-path rust/Cargo.toml --lib
 ```
 
-Header: `rust/include/dparams_lazy.h`.
+Header: `rust/include/dparams_runtime.h`.
 Library: `rust/target/release/libdatum_params_tools.a`.
 
 ```cpp
-#include "dparams_lazy.h"
+#include "dparams_runtime.h"
 #include <cstdio>
 
 int main(int argc, char** argv) {
     if (argc != 3) return 2;
 
-    if (dparams_lazy_eval(argv[1], argv[2], "main") != 0) {
+    if (dparams_runtime_eval(argv[1], argv[2], "main") != 0) {
         char error[512] = {0};
-        if (dparams_lazy_error(error, sizeof error) != 0) {
+        if (dparams_runtime_error(error, sizeof error) != 0) {
             std::snprintf(error, sizeof error, "Datum evaluation failed");
         }
         std::fprintf(stderr, "%s\n", error);
@@ -292,25 +295,25 @@ int main(int argc, char** argv) {
     }
 
     double reach = 0.0;
-    if (dparams_lazy_get("reach_m", &reach) != 0) return 3;
+    if (dparams_runtime_get("reach_m", &reach) != 0) return 3;
     std::printf("%.6f\n", reach);
 
-    dparams_lazy_release();
+    dparams_runtime_release();
     return 0;
 }
 ```
 
 ```sh
-c++ -std=c++17 -I rust/include lazy.cpp -o lazy \
+c++ -std=c++17 -I rust/include runtime.cpp -o runtime \
   -L rust/target/release -ldatum_params_tools -lpthread -ldl
-./lazy PROJECT PROJECT/datum/spec.json
+./runtime PROJECT PROJECT/datum/spec.json
 ```
 
 The spec path is read exactly as passed, relative to the process working
 directory (or absolute), not relative to the project argument. The session and
 error slots are process-global; call the C ABI from one thread at a time and
 use one active session. A failed evaluation clears the session, so a caller
-cannot fall back to earlier values. Call `dparams_lazy_evidence(PATH)` after a
+cannot fall back to earlier values. Call `dparams_runtime_evidence(PATH)` after a
 successful evaluation to write the same record as the Python `evidence` option.
 
 ### Runtime behavior to tell the user
@@ -327,9 +330,9 @@ successful evaluation to write the same record as the Python `evidence` option.
 The Python object exposes the two shapes `rclpy` commonly needs:
 
 ```python
-from datum_interface import load_lazy
+from datum_interface import load_runtime
 
-params = load_lazy("PROJECT", worktree="main")
+params = load_runtime("PROJECT", worktree="main")
 
 node = Node("arm_controller", parameters=[params.ros_parameters()])
 yaml_mapping = params.ros_yaml("arm_controller")
@@ -391,10 +394,10 @@ claim that a Studio download contains features it does not emit.
 URDF export is separate from parameter extraction and is not required to
 integrate parameters. It requires a separately installed `solidcraft-cli` and
 accepts a limited SolidCraft/34 assembly profile. Use the Studio **Export URDF**
-panel or the scriptable `datum_parameter_studio.lazy_urdf` path documented in
+panel or the scriptable `datum_parameter_studio.runtime_urdf` path documented in
 the repository README and `parameter_studio/README.md`. A structural pass is not
 a fidelity, physics-readiness or safety guarantee. Export does not make URDF
-generation a prerequisite for `load()` or `load_lazy()`.
+generation a prerequisite for `load_generated()` or `load_runtime()`.
 
 ## 9. Failure handling
 
@@ -421,11 +424,11 @@ Run the check that matches the chosen mode, on synthetic or temporary data when
 possible:
 
 ```sh
-# Lazy Python path
-python -c "from datum_interface import load_lazy; p=load_lazy('PROJECT'); print(p.manifest['worktree'], p['forearm_length_m'], p['reach_m'])"
+# Runtime Python path
+python -c "from datum_interface import load_runtime; p=load_runtime('PROJECT'); print(p.manifest['worktree'], p['forearm_length_m'], p['reach_m'])"
 
-# Compiled Python path
-python -c "from datum_interface import load; p=load('PROJECT/datum/parameters.json', worktree='main'); print(p['forearm_length_m'])"
+# Generated Python path
+python -c "from datum_interface import load_generated; p=load_generated('PROJECT/datum/parameters.json', worktree='main'); print(p['forearm_length_m'])"
 
 # C++ generated header
 c++ -std=c++17 -I PROJECT/datum controller.cpp -o controller && ./controller
@@ -433,20 +436,20 @@ c++ -std=c++17 -I PROJECT/datum controller.cpp -o controller && ./controller
 
 To check stale-input rejection without touching the user's real files, copy the
 project to a temporary directory, change the copy's CAD, and confirm the
-compiled loader raises `Datum CAD source changed` while the lazy loader either
+generated loader raises `Datum CAD source changed` while the runtime loader either
 picks up the new valid value or rejects it.
 
 Record in the handback:
 
-- integration mode (`load`, `load_lazy`, generated C++ header or C ABI);
+- integration mode (`load_generated`, `load_runtime`, generated C++ header or C ABI);
 - project root and worktree key;
 - parameter names and values in metres;
 - path and SHA-256 of the consumed spec and sources (the manifest or evidence
   record contains them);
 - the validation command and its result;
 - whether Studio was used and whether generated artifacts were committed;
-- known limits, especially that compiled headers are not runtime-checked and
-  lazy values are a startup snapshot.
+- known limits, especially that generated headers are not runtime-checked and
+  runtime values are a startup snapshot.
 
 ## 11. Read the installed guide
 
@@ -466,6 +469,6 @@ python -c "from importlib.resources import files; print(files('datum_interface')
 
 - Repository README: install, runtime modes, URDF modes
 - `parameter_studio/README.md`: Studio controls and URDF export
-- `examples/cpp-pick-place/README.md`: compiled and lazy C++ comparison
+- `examples/cpp-pick-place/README.md`: generated and runtime C++ comparison
 - `examples/ros2_cpp_pick_place/README.md`: ROS 2 consumer
 - `BENCHMARKS.md`: startup measurements and reproduction

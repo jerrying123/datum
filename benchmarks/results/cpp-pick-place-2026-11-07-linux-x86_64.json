@@ -14,10 +14,10 @@
   "one_time_ms": {
     "generate_artifacts": 2.676117,
     "compile_generated_example": 492.591754,
-    "compile_lazy_example": 871.857618
+    "compile_runtime_example": 871.857618
   },
   "end_to_end_process_ms": {
-    "compiled": {
+    "generated": {
       "samples_ms": [
         1.174174,
         1.194443,
@@ -54,7 +54,7 @@
       "min_ms": 1.144969,
       "max_ms": 1.374012
     },
-    "lazy": {
+    "runtime": {
       "samples_ms": [
         3.968755,
         3.949459,
@@ -92,5 +92,5 @@
       "max_ms": 4.431096
     }
   },
-  "scope": "Kinematic example process start through completion; lazy evaluates CAD twice, compiled uses baked constants. No URDF, ROS, physics, or runtime freshness check."
+  "scope": "Kinematic example process start through completion; runtime evaluates CAD twice, generated uses baked constants. No URDF, ROS, physics, or runtime freshness check."
 }

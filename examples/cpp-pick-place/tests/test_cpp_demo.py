@@ -1,4 +1,4 @@
-"""Exercise generated C++ headers and lazy C++ evaluation without SolidCraft."""
+"""Exercise generated C++ headers and runtime C++ evaluation without SolidCraft."""
 import hashlib
 import json
 import os
@@ -35,8 +35,8 @@ class CppPickPlaceTest(unittest.TestCase):
             subprocess.run(['python3',str(EXAMPLE/'benchmark.py'),str(project),'--runs','2','--warmup','0','--output',str(report)],check=True,capture_output=True,text=True)
             data = json.loads(report.read_text())
             self.assertEqual(data['schema'], 'datum.cpp-pick-place.startup-benchmark/1')
-            self.assertEqual(len(data['end_to_end_process_ms']['compiled']['samples_ms']), 2)
-            self.assertEqual(len(data['end_to_end_process_ms']['lazy']['samples_ms']), 2)
+            self.assertEqual(len(data['end_to_end_process_ms']['generated']['samples_ms']), 2)
+            self.assertEqual(len(data['end_to_end_process_ms']['runtime']['samples_ms']), 2)
             self.assertGreater(data['one_time_ms']['generate_artifacts'], 0)
             self.assertEqual(len(data['sources_sha256']), 4)
 
@@ -62,7 +62,7 @@ class CppPickPlaceTest(unittest.TestCase):
                 wrong='pass' if expected=='fail' else 'fail'
                 self.assertNotEqual(subprocess.run([str(executable),wrong],capture_output=True).returncode,0)
 
-    def test_lazy_evaluation_matches_compiled_values_without_artifacts(self):
+    def test_runtime_evaluation_matches_generated_values_without_artifacts(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             for variant, length in [('baseline', 100), ('changed', 160)]:
@@ -70,17 +70,17 @@ class CppPickPlaceTest(unittest.TestCase):
                 spec_path = write_cad_project(project, variant, length)
                 subprocess.run(['cargo','run','--quiet','--locked','--manifest-path',str(ROOT/'rust/Cargo.toml'),'--bin','datum-params','--','generate',str(project),str(spec_path),'main',str(project/'datum/parameters.json'),str(project/'datum/parameters.hpp')],check=True)
             subprocess.run(['cargo','build','--quiet','--locked','--manifest-path',str(ROOT/'rust/Cargo.toml'),'--lib'],check=True)
-            executable=root/'pick_place_lazy'
-            subprocess.run(['c++','-std=c++17','-Wall','-Wextra','-Werror','-I',str(ROOT/'rust/include'),'-I',str(EXAMPLE),str(EXAMPLE/'controller_lazy.cpp'),'-o',str(executable),'-L',str(ROOT/'rust/target/debug'),'-ldatum_params_tools','-lpthread','-ldl'],check=True)
+            executable=root/'pick_place_runtime'
+            subprocess.run(['c++','-std=c++17','-Wall','-Wextra','-Werror','-I',str(ROOT/'rust/include'),'-I',str(EXAMPLE),str(EXAMPLE/'controller_runtime.cpp'),'-o',str(executable),'-L',str(ROOT/'rust/target/debug'),'-ldatum_params_tools','-lpthread','-ldl'],check=True)
             env = dict(os.environ)
             existing = env.get('LD_LIBRARY_PATH')
             env['LD_LIBRARY_PATH'] = str(ROOT/'rust/target/debug') + (os.pathsep + existing if existing else '')
-            # The lazy consumer needs no generated artifacts: remove all of them.
+            # The runtime consumer needs no generated artifacts: remove all of them.
             for variant in ('baseline', 'changed'):
                 for name in ('parameters.json', 'parameters.hpp'):
                     (root/variant/'datum'/name).unlink()
             for projects, expected in [((root/'changed',root/'changed'),'pass'), ((root/'baseline',root/'changed'),'fail')]:
-                evidence = root/f'{projects[0].name}-lazy-evidence.json'
+                evidence = root/f'{projects[0].name}-runtime-evidence.json'
                 result=subprocess.run([str(executable),str(projects[0]),str(projects[1]),expected,str(evidence)],check=True,capture_output=True,text=True,env=env).stdout
                 self.assertIn(f'controller tool={0.1775 if expected=="fail" else 0.2375} m',result)
                 self.assertIn('physical tool=0.2375 m',result)
@@ -89,8 +89,8 @@ class CppPickPlaceTest(unittest.TestCase):
                 else:
                     self.assertIn('PASS:',result)
                 record=json.loads(evidence.read_text())
-                self.assertEqual(record['evidence_schema'],'datum.robot.lazy-evidence/1')
-                self.assertEqual(record['mode'],'lazy')
+                self.assertEqual(record['evidence_schema'],'datum.robot.runtime-evidence/1')
+                self.assertEqual(record['mode'],'runtime')
                 self.assertEqual(record['sources_sha256']['cad/forearm.solidcraft'],hashlib.sha256((projects[0]/'cad/forearm.solidcraft').read_bytes()).hexdigest())
                 self.assertEqual(record['spec_sha256'],hashlib.sha256((projects[0]/'datum/spec.json').read_bytes()).hexdigest())
                 # The physical evaluation is recorded beside the controller one.
@@ -105,8 +105,8 @@ class CppPickPlaceTest(unittest.TestCase):
             failure_evidence=root/'failure-evidence.json'
             result=subprocess.run([str(executable),str(root/'changed'),str(root/'changed'),'pass',str(failure_evidence)],capture_output=True,text=True,env=env)
             self.assertEqual(result.returncode,2)
-            self.assertIn('unknown lazy parameter finger_length_m',result.stderr)
-            self.assertEqual(json.loads(failure_evidence.read_text())['mode'],'lazy')
+            self.assertIn('unknown runtime parameter finger_length_m',result.stderr)
+            self.assertEqual(json.loads(failure_evidence.read_text())['mode'],'runtime')
 
     def test_c_abi_buffer_and_session_contract(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -116,42 +116,42 @@ class CppPickPlaceTest(unittest.TestCase):
             subprocess.run(['cargo','build','--quiet','--locked','--manifest-path',str(ROOT/'rust/Cargo.toml'),'--lib'],check=True)
             source = root / 'contract.cpp'
             source.write_text(r"""
-#include "dparams_lazy.h"
+#include "dparams_runtime.h"
 #include <cstring>
 #include <iostream>
 
 int main(int argc, char** argv) {
     if (argc != 4) return 1;
     // A failed evaluation records an error and leaves no session behind.
-    if (dparams_lazy_eval(argv[1], argv[3], "main") == 0) return 9;
-    if (dparams_lazy_count() != -1) return 10;
+    if (dparams_runtime_eval(argv[1], argv[3], "main") == 0) return 9;
+    if (dparams_runtime_count() != -1) return 10;
     // A null buffer with length 0 queries the required size; a short buffer
     // reports that size and writes nothing.
-    const int needed = dparams_lazy_error(nullptr, 0);
+    const int needed = dparams_runtime_error(nullptr, 0);
     if (needed <= 4) return 11;
     char tiny[4];
     std::memset(tiny, 'x', sizeof tiny);
-    if (dparams_lazy_error(tiny, sizeof tiny) != needed) return 12;
+    if (dparams_runtime_error(tiny, sizeof tiny) != needed) return 12;
     if (tiny[0] != 'x') return 13;
-    if (dparams_lazy_eval(argv[1], argv[2], "main") != 0) return 14;
-    if (dparams_lazy_count() <= 0) return 15;
+    if (dparams_runtime_eval(argv[1], argv[2], "main") != 0) return 14;
+    if (dparams_runtime_count() <= 0) return 15;
     // A successful session call clears the recorded error.
-    if (dparams_lazy_error(nullptr, 0) != 1) return 16;
+    if (dparams_runtime_error(nullptr, 0) != 1) return 16;
     // A too-small hash buffer reports the size and writes nothing.
-    const int hash_needed = dparams_lazy_source_hash("cad/forearm.solidcraft", nullptr, 0);
+    const int hash_needed = dparams_runtime_source_hash("cad/forearm.solidcraft", nullptr, 0);
     if (hash_needed <= 0) return 14;
     char partial[8];
     std::memset(partial, 'x', sizeof partial);
-    if (dparams_lazy_source_hash("cad/forearm.solidcraft", partial, sizeof partial) != hash_needed) return 15;
+    if (dparams_runtime_source_hash("cad/forearm.solidcraft", partial, sizeof partial) != hash_needed) return 15;
     if (partial[0] != 'x') return 16;
     char full[65];
-    if (dparams_lazy_source_hash("cad/forearm.solidcraft", full, sizeof full) != 0) return 17;
+    if (dparams_runtime_source_hash("cad/forearm.solidcraft", full, sizeof full) != 0) return 17;
     if (std::strlen(full) != 64) return 18;
     // A later failed evaluation clears the session instead of serving old values.
-    if (dparams_lazy_eval(argv[1], argv[3], "main") == 0) return 19;
-    if (dparams_lazy_count() != -1) return 20;
-    if (dparams_lazy_error(nullptr, 0) <= 1) return 21;
-    dparams_lazy_release();
+    if (dparams_runtime_eval(argv[1], argv[3], "main") == 0) return 19;
+    if (dparams_runtime_count() != -1) return 20;
+    if (dparams_runtime_error(nullptr, 0) <= 1) return 21;
+    dparams_runtime_release();
     return 0;
 }
 """)
@@ -160,6 +160,33 @@ int main(int argc, char** argv) {
             env = dict(os.environ)
             env['LD_LIBRARY_PATH'] = str(ROOT/'rust/target/debug') + (os.pathsep + env['LD_LIBRARY_PATH'] if env.get('LD_LIBRARY_PATH') else '')
             result = subprocess.run([str(executable),str(project),str(spec_path),str(root/'missing.json')],capture_output=True,text=True,env=env)
+            self.assertEqual(result.returncode,0,result.stderr)
+
+    def test_legacy_c_abi_header_forwards_to_runtime_symbols(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / 'project'
+            spec_path = write_cad_project(project, 'changed', 160)
+            subprocess.run(['cargo','build','--quiet','--locked','--manifest-path',str(ROOT/'rust/Cargo.toml'),'--lib'],check=True)
+            source = root / 'legacy.cpp'
+            source.write_text(r"""
+#include "dparams_lazy.h"
+
+int main(int argc, char** argv) {
+    if (argc != 3) return 1;
+    if (dparams_lazy_eval(argv[1], argv[2], "main") != 0) return 2;
+    double value = 0;
+    if (dparams_lazy_get("forearm_length_m", &value) != 0) return 3;
+    if (value < 0.15 || value > 0.17) return 4;
+    dparams_lazy_release();
+    return 0;
+}
+""")
+            executable = root / 'legacy'
+            subprocess.run(['c++','-std=c++17','-Wall','-Wextra','-Werror','-I',str(ROOT/'rust/include'),str(source),'-o',str(executable),'-L',str(ROOT/'rust/target/debug'),'-ldatum_params_tools','-lpthread','-ldl'],check=True)
+            env = dict(os.environ)
+            env['LD_LIBRARY_PATH'] = str(ROOT/'rust/target/debug') + (os.pathsep + env['LD_LIBRARY_PATH'] if env.get('LD_LIBRARY_PATH') else '')
+            result = subprocess.run([str(executable),str(project),str(spec_path)],capture_output=True,text=True,env=env)
             self.assertEqual(result.returncode,0,result.stderr)
 
     def test_unreachable_target_is_reported_on_stderr(self):
@@ -191,6 +218,7 @@ int main() {
             archive_dir = Path(tmp) / "dparams"
             archive_dir.mkdir()
             (archive_dir / "include").mkdir()
+            shutil.copy2(ROOT / "rust/include/dparams_runtime.h", archive_dir / "include/dparams_runtime.h")
             shutil.copy2(ROOT / "rust/include/dparams_lazy.h", archive_dir / "include/dparams_lazy.h")
             shutil.copy2(ROOT / "rust/target/debug/datum-params", archive_dir / "datum-params")
             shutil.copy2(ROOT / "rust/target/debug/libdatum_params_tools.a", archive_dir / "libdatum_params_tools.a")
@@ -219,7 +247,7 @@ if '--save' in args:
             proc = subprocess.run([str(archive_dir / "example/run.sh"), str(out_dir)], capture_output=True, text=True, env=env)
             self.assertEqual(proc.returncode, 0, f"run.sh failed: {proc.stderr}\n{proc.stdout}")
             self.assertTrue((out_dir / "changed/pick_place").is_file())
-            self.assertTrue((out_dir / "pick_place_lazy").is_file())
+            self.assertTrue((out_dir / "pick_place_runtime").is_file())
 
             bench_report = Path(tmp) / "bench.json"
             bench_proc = subprocess.run(["python3", str(archive_dir / "example/benchmark.py"), str(out_dir / "changed"), "--runs", "2", "--warmup", "0", "--output", str(bench_report)], capture_output=True, text=True, env=env)

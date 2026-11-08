@@ -39,16 +39,16 @@ python -c "from datum_interface import agent_guide; print(agent_guide())"
 4. For Python, read the spec and saved CAD at startup:
 
 ```python
-from datum_interface import load_lazy
+from datum_interface import load_runtime
 
-params = load_lazy("PROJECT", worktree="main")
+params = load_runtime("PROJECT", worktree="main")
 print(params["forearm_length_m"])
 ```
 
 This path needs only the Python package, the spec and the saved CAD. It needs no
 generated artifact, Rust build, Docker, cloud account or Studio.
 
-5. For C++, either generate a compile-time header:
+5. For C++, either generate a C++ header:
 
 ```sh
 cargo build --manifest-path rust/Cargo.toml --bins
@@ -57,21 +57,21 @@ rust/target/debug/datum-params generate \
   PROJECT/datum/parameters.json PROJECT/datum/parameters.hpp
 ```
 
-and include `PROJECT/datum/parameters.hpp`, or link the lazy static library
-(`rust/include/dparams_lazy.h` plus `rust/target/release/libdatum_params_tools.a`)
+and include `PROJECT/datum/parameters.hpp`, or link the runtime static library
+(`rust/include/dparams_runtime.h` plus `rust/target/release/libdatum_params_tools.a`)
 and evaluate at startup. The guide has complete snippets for both.
 
 ## Choose the mode deliberately
 
 | Need | Mode | Runtime check |
 |---|---|---|
-| Python iteration, no generated files | `load_lazy(PROJECT)` | Spec and CAD read at startup |
-| Reviewed generated artifact | `load(PROJECT/datum/parameters.json)` | Spec and CAD SHA-256 checked |
-| C++ compile-time constants | generated `parameters.hpp` | None; rebuild after changes |
+| Python iteration, no generated files | `load_runtime(PROJECT)` | Spec and CAD read at startup |
+| Reviewed generated artifact | `load_generated(PROJECT/datum/parameters.json)` | Spec and CAD SHA-256 checked |
+| C++ generated constants | generated `parameters.hpp` | None; rebuild after changes |
 | C++ startup evaluation | C ABI static library | Spec and CAD read at startup |
 
-Compiled headers are copied into the binary and are not runtime-checked.
-Lazy and generated values are startup snapshots, not continuous tracking.
+Generated headers are copied into the binary and are not runtime-checked.
+Runtime and generated values are startup snapshots, not continuous tracking.
 
 ## Studio is optional
 
@@ -84,10 +84,10 @@ extra hashed sources must be added by editing `spec.json`.
 
 ## Repository layout
 
-- `datum_interface/` — Python runtime package, `load`, `load_lazy`, packaged guide
+- `datum_interface/` — Python package, `load_generated`, `load_runtime`, packaged guide
 - `rust/` — shared evaluation core, `datum-params` generator, C ABI
 - `parameter_studio/` — optional local Studio and URDF helpers
-- `examples/` — C++ and ROS 2 consumers, including compiled versus lazy modes
+- `examples/` — C++ and ROS 2 consumers, including generated versus runtime modes
 - `benchmarks/` — recorded startup measurements
 
 ## Checks before proposing a change
@@ -108,7 +108,7 @@ artifacts are available unless they are actually published.
 The loaders raise or report errors instead of returning stale values:
 
 - changed `spec.json` after generation: regenerate and rebuild;
-- changed saved CAD: regenerate and rebuild, or use lazy mode;
+- changed saved CAD: regenerate and rebuild, or use runtime mode;
 - stale pointer: re-inspect `document.json`;
 - unit mismatch: correct `source_units`;
 - out-of-bounds or non-positive value: fix the CAD or the intended bounds;

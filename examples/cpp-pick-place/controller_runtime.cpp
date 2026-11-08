@@ -1,11 +1,11 @@
-// Lazy mode: the same pick-and-place plan, but no generated artifacts are
+// Runtime mode: the same pick-and-place plan, but no generated artifacts are
 // needed before the run. Parameter values are extracted from the parameter
 // spec and saved SolidCraft files at startup through the shared evaluation
 // core's C ABI, so this one executable cannot fall back to values from an
 // earlier evaluation: a failed evaluation clears the session and stops the run.
-// No compile-time constants are involved.
+// No generated constants are involved.
 #include "plan.hpp"
-#include "dparams_lazy.h"
+#include "dparams_runtime.h"
 #include <iostream>
 #include <string>
 #include <vector>
@@ -14,36 +14,36 @@ namespace {
 // Copies the last error out of the C ABI, sizing the buffer from its
 // query call; a positive return is the required byte count.
 std::string last_error() {
-    const int needed = dparams_lazy_error(nullptr, 0);
+    const int needed = dparams_runtime_error(nullptr, 0);
     if (needed <= 0) return {};
     std::vector<char> buffer(static_cast<size_t>(needed));
-    if (dparams_lazy_error(buffer.data(), buffer.size()) != 0) return {};
+    if (dparams_runtime_error(buffer.data(), buffer.size()) != 0) return {};
     return std::string(buffer.data());
 }
 
 // Releases the active session even when a read fails part way through.
 struct SessionGuard {
-    ~SessionGuard() { dparams_lazy_release(); }
+    ~SessionGuard() { dparams_runtime_release(); }
 };
 
 struct LoadedArm { double upper_arm_length_m = 0, shoulder_height_m = 0, tool_length_m = 0; };
 
 bool read_named(const char* name, double* out) {
-    if (dparams_lazy_get(name, out) != 0) {
-        std::cerr << "lazy read " << name << ": " << last_error() << "\n";
+    if (dparams_runtime_get(name, out) != 0) {
+        std::cerr << "runtime read " << name << ": " << last_error() << "\n";
         return false;
     }
     return true;
 }
 
 // Evaluates PROJECT/datum/spec.json for worktree main once and reads the arm
-// dimensions. When evidence_path is given, the machine-readable lazy evidence
+// dimensions. When evidence_path is given, the machine-readable runtime evidence
 // record for this exact evaluation is written there before release, including
 // when a read fails, so a failed run still records which CAD it consumed.
 bool load_arm(const char* project, LoadedArm& arm, bool need_shoulder, const char* evidence_path) {
     const std::string spec = std::string(project) + "/datum/spec.json";
-    if (dparams_lazy_eval(project, spec.c_str(), "main") != 0) {
-        std::cerr << "lazy evaluation failed for " << project << ": " << last_error() << "\n";
+    if (dparams_runtime_eval(project, spec.c_str(), "main") != 0) {
+        std::cerr << "runtime evaluation failed for " << project << ": " << last_error() << "\n";
         return false;
     }
     SessionGuard guard;
@@ -54,15 +54,15 @@ bool load_arm(const char* project, LoadedArm& arm, bool need_shoulder, const cha
         && read_named("finger_length_m", &finger)
         && (!need_shoulder || read_named("shoulder_height_m", &arm.shoulder_height_m));
     arm.tool_length_m = forearm + palm + finger / 2;
-    if (evidence_path && dparams_lazy_evidence(evidence_path) != 0) {
-        std::cerr << "lazy evidence write failed: " << last_error() << "\n";
+    if (evidence_path && dparams_runtime_evidence(evidence_path) != 0) {
+        std::cerr << "runtime evidence write failed: " << last_error() << "\n";
         return false;
     }
     return ok;
 }
 } // namespace
 
-// Usage: pick_place_lazy CONTROLLER_PROJECT PHYSICAL_PROJECT pass|fail [EVIDENCE_PATH]
+// Usage: pick_place_runtime CONTROLLER_PROJECT PHYSICAL_PROJECT pass|fail [EVIDENCE_PATH]
 // CONTROLLER_PROJECT and PHYSICAL_PROJECT normally name the same reviewed CAD
 // directory. Pointing them at different directories shows what running
 // against a stale CAD snapshot looks like, while the executable itself never
@@ -72,7 +72,7 @@ bool load_arm(const char* project, LoadedArm& arm, bool need_shoulder, const cha
 int main(int argc, char** argv) {
     if (argc < 4 || argc > 5
         || (std::string(argv[3]) != "pass" && std::string(argv[3]) != "fail")) {
-        std::cerr << "Usage: pick_place_lazy CONTROLLER_PROJECT PHYSICAL_PROJECT pass|fail [EVIDENCE_PATH]\n";
+        std::cerr << "Usage: pick_place_runtime CONTROLLER_PROJECT PHYSICAL_PROJECT pass|fail [EVIDENCE_PATH]\n";
         return 2;
     }
     const double tolerance = 0.015; // illustrative position tolerance, metres

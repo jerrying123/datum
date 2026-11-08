@@ -17,7 +17,7 @@ This example can be run either from a downloaded release archive (no Rust/Cargo 
 
 ### From the downloaded release archive
 
-In the downloaded native release bundle (`datum-params-<platform>.zip`), the precompiled `datum-params` CLI, `include/dparams_lazy.h` header, and static library `libdatum_params_tools.a` are already included, so **no Rust source or Cargo installation is required**.
+In the downloaded native release bundle (`datum-params-<platform>.zip`), the precompiled `datum-params` CLI, `include/dparams_runtime.h` header (plus the legacy `include/dparams_lazy.h` compatibility header), and static library `libdatum_params_tools.a` are already included, so **no Rust source or Cargo installation is required**.
 
 From the extracted archive root (`dparams/`):
 
@@ -53,26 +53,26 @@ The destination must not exist. The script creates new native SolidCraft box fil
 
 The stale controller misses the fixed grasp target by 0.0600 m and stops. The generated controller reaches the grasp, lift and place positions within tolerance. Both use the same target coordinates and changed arm. Each program takes an expected result (`fail` or `pass`) and returns nonzero if the observed result differs, so the script is suitable for a reproducibility check.
 
-## Lazy mode
+## Runtime mode
 
-`run.sh` also builds `pick_place_lazy`, a second consumer that needs **no generated artifacts at all**. It links the shared Rust evaluation core as a static library (`include/dparams_lazy.h` and `libdatum_params_tools.a`) and extracts every dimension from the parameter spec and saved CAD at startup:
+`run.sh` also builds `pick_place_runtime`, a second consumer that needs **no generated artifacts at all**. It links the shared Rust evaluation core as a static library (`include/dparams_runtime.h` in a release archive, or `rust/include/dparams_runtime.h` in a checkout, plus `libdatum_params_tools.a`) and extracts every dimension from the parameter spec and saved CAD at startup:
 
-| Lazy run | Controller CAD | Physical CAD | Result |
+| Runtime run | Controller CAD | Physical CAD | Result |
 |---|---|---|---|
-| `pick_place_lazy changed changed pass [evidence.json]` | current | current | grasp, lift and place reached |
-| `pick_place_lazy baseline changed fail [evidence.json]` | stale baseline | current | misses by 0.0600 m |
+| `pick_place_runtime changed changed pass [evidence.json]` | current | current | grasp, lift and place reached |
+| `pick_place_runtime baseline changed fail [evidence.json]` | stale baseline | current | misses by 0.0600 m |
 
-The same executable runs both scenarios; the only difference between them is which CAD directory it is pointed at. Nothing is baked in, so the values come from the CAD at startup and a failed evaluation clears the session instead of falling back to earlier numbers. That is a startup snapshot, not continuous tracking: after `dparams_lazy_eval` the process keeps the doubles it read, and changing the CAD or spec mid-run does not update them. Pointing a run at the wrong CAD directory is an explicit way to get stale values. When the optional evidence path is given, the machine-readable `datum.robot.lazy-evidence/1` record (values, bounds, source and spec SHA-256 hashes) is written for that exact controller evaluation, and the physical evaluation is recorded beside it as `EVIDENCE_PATH.physical.json`; a failed read still records the CAD it consumed.
+The same executable runs both scenarios; the only difference between them is which CAD directory it is pointed at. Nothing is baked in, so the values come from the CAD at startup and a failed evaluation clears the session instead of falling back to earlier numbers. That is a startup snapshot, not continuous tracking: after `dparams_runtime_eval` the process keeps the doubles it read, and changing the CAD or spec mid-run does not update them. Pointing a run at the wrong CAD directory is an explicit way to get stale values. When the optional evidence path is given, the machine-readable `datum.robot.runtime-evidence/1` record (values, bounds, source and spec SHA-256 hashes) is written for that exact controller evaluation, and the physical evaluation is recorded beside it as `EVIDENCE_PATH.physical.json`; a failed read still records the CAD it consumed.
 
-The lazy loader mirrors the generator's runtime rules: units, bounds and positive dimensions. The Rust generator and the C ABI share one evaluation core; the Python loader is a separate implementation and the cross-mode conformance tests compare both modes on units, summation order, derived ordering and identifiers. An out-of-bounds or malformed CAD change stops the run instead of serving stale values. In C++ the plan loses its compile-time `constexpr` — the values live in a small struct after one startup evaluation, so hot loops still see plain doubles. The kinematics, targets, tolerance, stage output and exit codes are shared with the compiled controller (`plan.hpp`); an unreachable target is reported on stderr in both modes.
+The runtime loader mirrors the generator's runtime rules: units, bounds and positive dimensions. The Rust generator and the C ABI share one evaluation core; the Python loader is a separate implementation and the cross-mode conformance tests compare both modes on units, summation order, derived ordering and identifiers. An out-of-bounds or malformed CAD change stops the run instead of serving stale values. In C++ the plan loses its compile-time `constexpr` — the values live in a small struct after one startup evaluation, so hot loops still see plain doubles. The kinematics, targets, tolerance, stage output and exit codes are shared with the generated controller (`plan.hpp`); an unreachable target is reported on stderr in both modes.
 
-The output directory retains each saved CAD file, spec, source-hashed JSON manifest, generated C++ header, SHA-256 inventory, compiled executable and result text. This is a self-contained synthetic arm example; it does not claim equivalence to the exported URDF or the Bullet contact demonstration.
+The output directory retains each saved CAD file, spec, source-hashed JSON manifest, generated C++ header, SHA-256 inventory, built executable and result text. This is a self-contained synthetic arm example; it does not claim equivalence to the exported URDF or the Bullet contact demonstration.
 
 ## Code boundary and freshness
 
-`controller.cpp` includes the generated header and uses the named dimensions at the IK boundary. `physical.cpp` includes the changed header in a separate namespace and derives the physical tool length. `controller_lazy.cpp` reads the same dimensions from the spec and saved CAD at startup (see Lazy mode). If you change CAD or the spec, rerun the generator and rebuild the compiled consumers before running; the lazy consumer instead fails fast or picks up the new CAD at startup by design.
+`controller.cpp` includes the generated header and uses the named dimensions at the IK boundary. `physical.cpp` includes the changed header in a separate namespace and derives the physical tool length. `controller_runtime.cpp` reads the same dimensions from the spec and saved CAD at startup (see Runtime mode). If you change CAD or the spec, rerun the generator and rebuild the generated-header consumers before running; the runtime consumer instead fails fast or picks up the new CAD at startup by design.
 
-The generated C++ header contains constants; it **does not perform runtime CAD or spec hash checks**. The JSON manifest records those hashes, the separate Python `datum_interface` loader can validate them, and the lazy C++ core re-extracts from CAD so there is nothing to check against. This workflow generates both headers immediately before compiling; it is not runtime stale-data protection.
+The generated C++ header contains constants; it **does not perform runtime CAD or spec hash checks**. The JSON manifest records those hashes, the separate Python `datum_interface` loader can validate them, and the runtime C++ core re-extracts from CAD so there is nothing to check against. This workflow generates both headers immediately before compiling; it is not runtime stale-data protection.
 
 ## Startup performance
 

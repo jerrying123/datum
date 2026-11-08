@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Measure this kinematic example's generated and lazy startup paths."""
+"""Measure this kinematic example's generated and runtime startup paths."""
 import argparse
 import hashlib
 import json
@@ -14,7 +14,7 @@ from pathlib import Path
 EXAMPLE = Path(__file__).resolve().parent
 ARCHIVE_DIR = EXAMPLE.parent
 
-if (ARCHIVE_DIR / 'include/dparams_lazy.h').is_file() and (
+if (ARCHIVE_DIR / 'include/dparams_runtime.h').is_file() and (
     (ARCHIVE_DIR / 'libdatum_params_tools.a').is_file() or (ARCHIVE_DIR / 'datum_params_tools.lib').is_file()
 ):
     # Running from bundled/downloaded release archive (Rust source absent)
@@ -71,24 +71,24 @@ def main():
         out = Path(temp)
         generation_ms, _ = run([generator, 'generate', project, spec, 'main', out/'parameters.json', out/'parameters.hpp'])
         manifest = json.loads((out/'parameters.json').read_text())
-        build_ms, _ = run(['c++', '-std=c++17', '-O2', '-I', out, EXAMPLE/'controller.cpp', EXAMPLE/'physical.cpp', '-o', out/'compiled'])
-        lazy_build_ms, _ = run(['c++', '-std=c++17', '-O2', '-I', INCLUDE_DIR, '-I', EXAMPLE, EXAMPLE/'controller_lazy.cpp', library, '-lpthread', '-ldl', '-o', out/'lazy'])
-        compiled = [out/'compiled', 'pass']
-        lazy = [out/'lazy', project, project, 'pass']
+        build_ms, _ = run(['c++', '-std=c++17', '-O2', '-I', out, EXAMPLE/'controller.cpp', EXAMPLE/'physical.cpp', '-o', out/'generated'])
+        runtime_build_ms, _ = run(['c++', '-std=c++17', '-O2', '-I', INCLUDE_DIR, '-I', EXAMPLE, EXAMPLE/'controller_runtime.cpp', library, '-lpthread', '-ldl', '-o', out/'runtime'])
+        generated = [out/'generated', 'pass']
+        runtime = [out/'runtime', project, project, 'pass']
         # Verify the exact same plan and result before reporting timings.
-        _, compiled_result = run(compiled)
-        _, lazy_result = run(lazy)
-        if compiled_result != lazy_result:
-            raise RuntimeError('compiled and lazy plan output differs; refusing to compare')
-        samples = {'compiled': [], 'lazy': []}
+        _, generated_result = run(generated)
+        _, runtime_result = run(runtime)
+        if generated_result != runtime_result:
+            raise RuntimeError('generated and runtime plan output differs; refusing to compare')
+        samples = {'generated': [], 'runtime': []}
         for iteration in range(args.warmup + args.runs):
             # Alternate order to reduce a systematic ordering bias.
-            modes = [('compiled', compiled), ('lazy', lazy)]
+            modes = [('generated', generated), ('runtime', runtime)]
             if iteration % 2:
                 modes.reverse()
             for name, command in modes:
                 elapsed, output = run(command)
-                if output != compiled_result:
+                if output != generated_result:
                     raise RuntimeError(f'{name} output changed during benchmark')
                 if iteration >= args.warmup:
                     samples[name].append(elapsed)
@@ -102,9 +102,9 @@ def main():
                   'spec_sha256': manifest['spec_sha256'], 'sources_sha256': manifest['sources_sha256'],
                   'runs': args.runs, 'warmup': args.warmup,
                   'one_time_ms': {'generate_artifacts': generation_ms, 'compile_generated_example': build_ms,
-                                  'compile_lazy_example': lazy_build_ms},
+                                  'compile_runtime_example': runtime_build_ms},
                   'end_to_end_process_ms': {k: summary(v) for k, v in samples.items()},
-                  'scope': 'Kinematic example process start through completion; lazy evaluates CAD twice, compiled uses baked constants. No URDF, ROS, physics, or runtime freshness check.'}
+                  'scope': 'Kinematic example process start through completion; runtime evaluates CAD twice, generated uses baked constants. No URDF, ROS, physics, or runtime freshness check.'}
         text = json.dumps(report, indent=2) + '\n'
         if args.output:
             args.output.write_text(text)
