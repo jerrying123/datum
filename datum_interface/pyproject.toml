@@ -14,3 +14,6 @@ package-dir = {"" = "python"}
 
 [tool.setuptools.packages.find]
 where = ["python"]
+
+[tool.setuptools.package-data]
+datum_interface = ["AGENT_GUIDE.md"]

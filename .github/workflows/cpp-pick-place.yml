@@ -14,7 +14,9 @@ jobs:
         run: cargo test --manifest-path rust/Cargo.toml --locked
       - name: Check C++ generated-header example
         run: python3 -m unittest discover -s examples/cpp-pick-place/tests -v
-      - name: Check Python loader and URDF validation
+      - name: Install Python package build tooling
+        run: python3 -m pip install --quiet build setuptools wheel
+      - name: Check Python loader, packaged agent guide and URDF validation
         run: |
           PYTHONPATH="$PWD/datum_interface/python" python3 -m unittest discover -s datum_interface/tests -v
           PYTHONPATH="$PWD/parameter_studio" python3 -m unittest discover -s parameter_studio/tests -v
