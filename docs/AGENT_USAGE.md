@@ -65,9 +65,12 @@ rust/target/debug/datum-params generate \
   PROJECT/datum/parameters.json PROJECT/datum/parameters.hpp
 ```
 
-and include `PROJECT/datum/parameters.hpp`, or link the runtime static library
-(`rust/include/dparams_runtime.h` plus `rust/target/release/libdatum_params_tools.a`)
-and evaluate at startup. The detailed guide has complete snippets for both.
+and include `PROJECT/datum/parameters.hpp`. For runtime evaluation, build the
+static library with
+`cargo build --release --manifest-path rust/Cargo.toml --lib`, then link
+`rust/include/dparams_runtime.h` plus
+`rust/target/release/libdatum_params_tools.a` and evaluate at startup. The
+detailed guide has complete snippets for both.
 
 ## Choose the mode deliberately
 
