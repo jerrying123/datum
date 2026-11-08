@@ -55,6 +55,22 @@ def generate(root, spec_path):
 
 
 class AgentGuideTest(unittest.TestCase):
+    def test_contributor_and_consumer_guides_are_separate(self):
+        contributor = (ROOT / 'AGENTS.md').read_text(encoding='utf-8')
+        consumer = (ROOT / 'docs/AGENT_USAGE.md').read_text(encoding='utf-8')
+        readme = (ROOT / 'README.md').read_text(encoding='utf-8')
+
+        self.assertIn('docs/AGENT_USAGE.md', contributor)
+        self.assertIn('## Checks before proposing a change', contributor)
+        self.assertNotIn('## Fastest integration path', contributor)
+
+        self.assertIn('## Fastest integration path', consumer)
+        self.assertIn('datum_interface/python/datum_interface/AGENT_GUIDE.md', consumer)
+        self.assertNotIn('## Checks before proposing a change', consumer)
+
+        self.assertIn('docs/AGENT_USAGE.md', readme)
+        self.assertIn('AGENTS.md', readme)
+
     def test_quickstart_spec_works_in_both_python_modes(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

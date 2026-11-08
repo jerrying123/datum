@@ -3,11 +3,12 @@
 ## Goal and size
 
 Provide a portable entry point for coding agents integrating DParams into a user
-project. Keep one detailed guide, a short repository AGENTS.md and a README link.
-Do not require a provider-specific skill, MCP server, cloud account or Studio.
-Ship the guide as a Python package resource so it remains available after pip
-installation. Current main supports source installation; do not claim unpublished
-PyPI or native release artifacts are available.
+project. Keep one detailed guide, a short consumer entry point
+(`docs/AGENT_USAGE.md`), a separate repository/contributor `AGENTS.md`, and
+README links for each audience. Do not require a provider-specific skill, MCP
+server, cloud account or Studio. Ship the detailed guide as a Python package
+resource so it remains available after pip installation. Do not claim a PyPI or
+native release artifact is available unless the release actually exists.
 
 ## Guide interactions
 
@@ -40,12 +41,14 @@ PyPI or native release artifacts are available.
 
 ## Implementation and checks
 
-The implementation adds the root entry point, packaged guide, README discovery,
-package-data metadata, and a bounded deterministic check of documented quickstart
-behavior using synthetic temporary CAD. The check verifies generation, both Python
-loading modes, generated C++ header consumption, stale-file rejection and guide inclusion in
-a built wheel, and runs in the existing PR CI rather than a new release pipeline. No
-user CAD or broad dependency changes were made.
+The implementation adds the consumer entry point, contributor guide, packaged
+guide, README discovery, package-data metadata, and a bounded deterministic check
+of documented quickstart behavior using synthetic temporary CAD. The check
+verifies generation, both Python loading modes, generated C++ header consumption,
+stale-file rejection, guide inclusion in a built wheel, and the separation and
+cross-linking of the contributor and consumer guides. It runs in the existing PR
+CI rather than a new release pipeline. No user CAD or broad dependency changes
+were made.
 
 Self-review covers correctness, discoverability, the shipped guide, executable
 examples, supported customization, optional Studio and required failure behavior.

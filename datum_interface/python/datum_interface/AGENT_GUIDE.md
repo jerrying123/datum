@@ -1,7 +1,7 @@
 # DParams agent integration guide
 
 This guide is for a coding agent adding CAD-derived parameters to a user's
-robot project. It matches DParams 0.1.0. If the code and this guide disagree,
+robot project. It matches DParams 0.2.0. If the code and this guide disagree,
 the code is authoritative; report the mismatch instead of inventing behavior.
 
 DParams reads **saved** SolidCraft `.solidcraft` files and extracts **explicit**

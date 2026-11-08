@@ -64,8 +64,8 @@ Open http://localhost:8000. For a phone on your Tailscale network add `--tailsca
 
 ## Agent integration
 
-Coding agents integrating DParams into another project should start with
-[AGENTS.md](AGENTS.md) and the detailed, packaged
+Coding agents integrating DParams into another project should start with the
+short [package usage guide](docs/AGENT_USAGE.md) and the detailed, packaged
 [agent integration guide](datum_interface/python/datum_interface/AGENT_GUIDE.md).
 The guide covers the direct `datum/spec.json` path, both Python modes, generated
 and runtime C++, and the optional Studio workflow. After installation the same
@@ -123,6 +123,13 @@ The [ROS 2 C++ pick-and-place example](examples/ros2_cpp_pick_place/README.md) u
 ## Performance
 
 See [BENCHMARKS.md](BENCHMARKS.md) for startup measurements, their scope, and reproduction commands.
+
+## Contributing
+
+Agents modifying this repository should start with [AGENTS.md](AGENTS.md). It
+covers the repository layout, required checks, and contribution rules. If you
+are integrating DParams into another project, use the
+[package usage guide](docs/AGENT_USAGE.md) instead.
 
 ## Scope
 
