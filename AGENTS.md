@@ -71,7 +71,8 @@ and evaluate at startup. The guide has complete snippets for both.
 | C++ startup evaluation | C ABI static library | Spec and CAD read at startup |
 
 Generated headers are copied into the binary and are not runtime-checked.
-Runtime and generated values are startup snapshots, not continuous tracking.
+Runtime values are startup snapshots; generated constants are baked into the
+binary at build time. Neither tracks CAD or spec changes continuously.
 
 ## Studio is optional
 

@@ -14,7 +14,7 @@ PyPI or native release artifacts are available.
 1. Identify project root, saved SolidCraft sources, language, selected spec worktree
    (a spec key, not a Git operation), and the exact runtime value needed. Inspect
    document.json read-only and validate the selected pointer against the actual file.
-2. Choose the fastest supported integration: Python load_runtime for iteration;
+2. Choose the fastest supported integration: Python `load_runtime` for iteration;
    generated JSON for Python with reviewed artifacts; generated C++17
    header for minimal C++ integration; C ABI static library when startup evaluation
    is desired. Explain prerequisites per path; Docker and SolidCraft CLI are only

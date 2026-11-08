@@ -1,4 +1,4 @@
-"""Runtime parameter evaluation: value semantics shared with the generated-artifact generator.
+"""Runtime parameter evaluation: value semantics shared with the artifact generator.
 
 The Rust datum-params CLI bakes a manifest and C++ header before the build. This
 module evaluates the same spec against the saved CAD files at runtime instead,
@@ -226,7 +226,7 @@ def evaluate_runtime(project_root, *, worktree="main"):
     Reads PROJECT/datum/spec.json from the resolved project root and extracts
     every mapped dimension fresh from the referenced SolidCraft sources.
     Returns (manifest, evidence); the manifest has the exact
-    datum.robot.parameters/2 shape of the generated-artifact generator, and the
+    datum.robot.parameters/2 shape of the generated artifact, and the
     evidence record adds evidence_schema, mode=runtime and the spec path.
     """
     project = Path(project_root).resolve(strict=True)

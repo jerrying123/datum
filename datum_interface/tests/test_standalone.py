@@ -103,7 +103,7 @@ def write_cad(path, document):
 
 
 def generate(root, spec):
-    """Write spec.json and run the real generated generator."""
+    """Write spec.json and run the real datum-params generator."""
     (root / 'datum').mkdir(parents=True, exist_ok=True)
     spec_path = root / 'datum/spec.json'
     spec_path.write_text(json.dumps(spec))
@@ -113,7 +113,7 @@ def generate(root, spec):
 
 
 class ConformanceTest(unittest.TestCase):
-    """Properties the generated core and the Python mirror must agree on."""
+    """Properties the Rust evaluation core and the Python mirror must agree on."""
 
     def test_units_summation_derived_order_and_identifiers(self):
         with tempfile.TemporaryDirectory() as tmp:
