@@ -60,6 +60,10 @@ Export runs against the saved CAD at evaluation time and is stamped with the sou
 
 The [ROS 2 C++ pick-and-place example](examples/ros2_cpp_pick_place/README.md) uses generated dimensions with an `rclcpp` controller and action-based motor simulator. The companion [standalone C++ comparison](examples/cpp-pick-place/README.md) contrasts stale and current dimensions against the same kinematic arm, in a compiled-header mode and a lazy mode that reads the CAD at startup with no generated files.
 
+## Performance
+
+See [BENCHMARKS.md](BENCHMARKS.md) for startup measurements, their scope, and reproduction commands.
+
 ## Scope
 
 The URDF preview/export requires a separately installed SolidCraft CLI. The initial validator accepts a limited SolidCraft/34 assembly profile; coupling, transform equivalence, physical mass properties, and simulation or hardware readiness are not certified. A structural pass is not a fidelity or safety guarantee. Consult the Studio guide before using a generated file.

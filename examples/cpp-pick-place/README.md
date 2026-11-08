@@ -45,15 +45,6 @@ The output directory retains each saved CAD file, spec, source-hashed JSON manif
 
 The generated C++ header contains constants; it **does not perform runtime CAD or spec hash checks**. The JSON manifest records those hashes, the separate Python `datum_interface` loader can validate them, and the lazy C++ core re-extracts from CAD so there is nothing to check against. This workflow generates both headers immediately before compiling; it is not runtime stale-data protection.
 
-## Startup performance check
+## Startup performance
 
-After running the example above, measure both modes on the **same changed CAD**:
-
-```sh
-python3 examples/cpp-pick-place/benchmark.py /tmp/dparams-cpp-pick-place/changed \
-  --warmup 2 --runs 20 --output /tmp/dparams-startup-benchmark.json
-```
-
-The report records every wall-clock sample and its median, minimum and maximum. Each sample launches a fresh process and runs the complete kinematic plan; it includes process startup and execution, not just parameter loading. The lazy example reads the CAD twice (controller and physical model); the generated example uses compiled constants and performs no runtime freshness check. The script checks that both produce identical plan output and that the spec and CAD hashes remain unchanged throughout measurement. It alternates execution order after warmup; results depend on the machine, filesystem cache and system load.
-
-Separate one-time measurements cover generating JSON/header artifacts and compiling the generated example, plus compiling the lazy example. They exclude building the Rust generator and library, CAD creation, and any ROS, URDF export, physics engine or simulator initialization. Thus these numbers estimate overhead in this small example, not full simulation startup; generated artifacts must be regenerated and rebuilt after CAD changes.
+See [BENCHMARKS.md](../../BENCHMARKS.md) for recorded results and reproduction steps.
