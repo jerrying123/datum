@@ -63,8 +63,9 @@ python3 scripts/validate_release_tag.py vX.Y.Z
 ```
 
 CI runs `cpp-demo` and `ros2-cpp-demo`. The C++ suite includes the clean-room
-archive test; keep `example/run.sh` and `example/benchmark.py` working from an
-extracted release archive without Rust source or Cargo.
+archive test; keep `examples/cpp-pick-place/run.sh` and `benchmark.py` working
+when copied to `example/` inside an extracted release archive without Rust source
+or Cargo.
 
 ## Contribution rules
 
