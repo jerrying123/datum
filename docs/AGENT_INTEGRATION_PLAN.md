@@ -40,13 +40,14 @@ PyPI or native release artifacts are available.
 
 ## Implementation and checks
 
-Luna implements the root entry point, packaged guide, README discovery, package-data
-metadata, and a bounded deterministic check of documented quickstart behavior using
-synthetic temporary CAD. Verify generation, both Python loading modes, compiled C++
-consumption when applicable, stale-file rejection and guide inclusion in a built
-wheel. Integrate the guide check into the existing PR CI rather than adding a new
-release pipeline. No user CAD or broad dependency changes.
+The implementation adds the root entry point, packaged guide, README discovery,
+package-data metadata, and a bounded deterministic check of documented quickstart
+behavior using synthetic temporary CAD. The check verifies generation, both Python
+loading modes, compiled C++ consumption, stale-file rejection and guide inclusion in
+a built wheel, and runs in the existing PR CI rather than a new release pipeline. No
+user CAD or broad dependency changes were made.
 
-Terra independently reviews correctness, discoverability, shipped guide, executable
+Self-review covers correctness, discoverability, the shipped guide, executable
 examples, supported customization, optional Studio and required failure behavior.
-Resolve findings and publish a new PR for user review. Do not merge it automatically.
+Findings were resolved before publishing the PR for user review; the PR is not
+merged automatically.

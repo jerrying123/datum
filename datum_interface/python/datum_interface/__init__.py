@@ -37,6 +37,16 @@ class Parameters:
 from .lazy import evaluate_lazy, write_evidence
 
 
+def agent_guide():
+    """Return the packaged agent integration guide as text.
+
+    The guide ships inside the installed package so it remains available
+    outside a source checkout.
+    """
+    from importlib.resources import files
+    return files(__name__).joinpath("AGENT_GUIDE.md").read_text(encoding="utf-8")
+
+
 def _check_manifest(manifest):
     """Shared value contract for compiled and lazy manifests.
 
