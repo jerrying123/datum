@@ -65,3 +65,14 @@ The C++ benchmark requires the Rust debug build made by `run.sh`. Both scripts
 check that the two modes produce matching output and that the recorded CAD and
 spec hashes still match. Re-run measurements for each additional example and
 record its workload and conditions before adding a comparison here.
+
+In a downloaded native release archive, the precompiled CLI and C++ library are
+already bundled. From the extracted archive root (`dparams/`), run:
+
+```sh
+example/run.sh /tmp/dparams-benchmark-project
+python3 example/benchmark.py /tmp/dparams-benchmark-project/changed \
+  --warmup 2 --runs 30 --output /tmp/dparams-cpp-benchmark.json
+```
+
+The archive does not include the Python startup benchmark.
