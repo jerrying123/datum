@@ -46,9 +46,11 @@ cargo build --locked --manifest-path rust/Cargo.toml --bin datum-params
 
 The Python runtime can read a spec and saved CAD without Rust after installation.
 The Rust binary is needed to generate a JSON manifest or C++ header. PyPI and
-precompiled native release bundles are planned but are not yet published; the
-[Releases page](https://github.com/jerrying123/datum/releases) will list them
-when available.
+precompiled native release bundles are planned but are not yet published. The
+Python distribution is named `datum-parameters`; once published, install it
+with `pip install datum-parameters`. The Python import remains `datum_interface`.
+The [Releases page](https://github.com/jerrying123/datum/releases) will list
+native bundles when available.
 
 ## First use: Python without Studio
 
