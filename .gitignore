@@ -7,3 +7,6 @@ rust/target/
 .venv/
 .dparams-studio/
 .env
+
+# Local context for the separate version-control checkout; never committed.
+/.datum-context
