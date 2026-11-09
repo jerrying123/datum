@@ -6,7 +6,7 @@ if [[ $# != 1 || -e "$1" ]]; then echo 'Usage: run.sh NEW_OUTPUT_DIRECTORY' >&2;
 dparams_dir=$(cd "$example_dir/.." && pwd)
 repo_dir=$(cd "$example_dir/../.." && pwd)
 
-if [[ -f "$dparams_dir/include/dparams_lazy.h" && ( -f "$dparams_dir/libdatum_params_tools.a" || -f "$dparams_dir/datum_params_tools.lib" ) ]]; then
+if [[ -f "$dparams_dir/include/dparams_runtime.h" && ( -f "$dparams_dir/libdatum_params_tools.a" || -f "$dparams_dir/datum_params_tools.lib" ) ]]; then
   # Running from downloaded/bundled release archive (Rust source absent)
   for tool in solidcraft-cli c++ sha256sum; do
     command -v "$tool" >/dev/null || { echo "Missing $tool" >&2; exit 2; }
@@ -70,19 +70,18 @@ c++ -std=c++17 -Wall -Wextra -Werror -I "$out/changed/datum" -c "$example_dir/ph
 for variant in baseline changed; do
   c++ -std=c++17 -Wall -Wextra -Werror -I "$out/$variant/datum" "$example_dir/controller.cpp" "$out/physical.o" -o "$out/$variant/pick_place"
 done
-
-# The lazy controller needs no generated artifacts at all; it links the shared
+# The runtime controller needs no generated artifacts at all; it links the shared
 # evaluation core and reads the spec and saved CAD at startup.
 c++ -std=c++17 -Wall -Wextra -Werror -I "$include_dir" -I "$example_dir" \
-  "$example_dir/controller_lazy.cpp" -o "$out/pick_place_lazy" \
+  "$example_dir/controller_runtime.cpp" -o "$out/pick_place_runtime" \
   "$lib_file" -lpthread -ldl
 
 printf '\nStale controller, changed physical arm:\n'
 "$out/baseline/pick_place" fail | tee "$out/baseline/result.txt"
 printf '\nGenerated controller, same changed physical arm:\n'
 "$out/changed/pick_place" pass | tee "$out/changed/result.txt"
-printf '\nLazy controller (no generated artifacts), current CAD directory on both sides:\n'
-"$out/pick_place_lazy" "$out/changed" "$out/changed" pass "$out/changed/lazy-evidence.json" | tee "$out/changed/lazy-result.txt"
-printf '\nSame lazy executable pointed at the stale baseline CAD directory:\n'
-"$out/pick_place_lazy" "$out/baseline" "$out/changed" fail "$out/baseline/lazy-evidence.json" | tee "$out/baseline/lazy-result.txt"
-printf '\nCAD, source-hashed manifests, generated headers, lazy evidence and results: %s\n' "$out"
+printf '\nRuntime controller (no generated artifacts), current CAD directory on both sides:\n'
+"$out/pick_place_runtime" "$out/changed" "$out/changed" pass "$out/changed/runtime-evidence.json" | tee "$out/changed/runtime-result.txt"
+printf '\nSame runtime executable pointed at the stale baseline CAD directory:\n'
+"$out/pick_place_runtime" "$out/baseline" "$out/changed" fail "$out/baseline/runtime-evidence.json" | tee "$out/baseline/runtime-result.txt"
+printf '\nCAD, source-hashed manifests, generated headers, runtime evidence and results: %s\n' "$out"

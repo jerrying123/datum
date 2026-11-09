@@ -1,5 +1,5 @@
 // Plan with one CAD-derived parameter set and evaluate against the changed arm.
-// Compiled mode: constants arrive from parameters.hpp generated before the
+// Generated mode: constants arrive from parameters.hpp generated before the
 // build; regenerate and rebuild after spec or CAD changes.
 #include "parameters.hpp"
 #include "plan.hpp"

@@ -1,5 +1,5 @@
-// Shared pick-and-place plan for both controller entry points: the compiled
-// header maintains constexpr constants and the lazy controller supplies values
+// Shared pick-and-place plan for both controller entry points: the generated
+// header maintains constexpr constants and the runtime controller supplies values
 // extracted from the saved CAD at startup. Identical kinematics, tolerance,
 // stage output and exit codes so both modes are directly comparable; only the
 // diagnostics stream for an unreachable target differs from data output.

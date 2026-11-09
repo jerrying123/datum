@@ -1,4 +1,4 @@
-//! Compiled-artifact CLI over the shared evaluation core.
+//! Generated-artifact CLI over the shared evaluation core.
 use anyhow::{bail, Result};
 use datum_params_tools::evaluate;
 use std::{env, path::Path};

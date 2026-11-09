@@ -8,7 +8,7 @@ A dash means no measurement has been recorded; it does not mean zero overhead.
 |---|---|---|---|
 | Standalone pick-and-place kinematics | Measured below | No equivalent example in this repository | Process launch through a kinematic plan |
 | ROS 2 Jazzy pick-and-place | Not measured | No equivalent example in this repository | No ROS startup or task timing recorded |
-| Datum parameter loader | Used by the lazy C++ example below | Measured below | Python interpreter startup plus one parameter load; no simulation |
+| Datum parameter loader | Used by the runtime C++ example below | Measured below | Python interpreter startup plus one parameter load; no simulation |
 | External pick-and-place, rover and other demos | Not measured here | Not measured here | No comparable results retained in this repository |
 
 ## November 7, 2026: Linux x86-64
@@ -23,21 +23,21 @@ the numbers.
 | Measurement | Median | p90 | p95 | p99 | Max |
 |---|---:|---:|---:|---:|---:|
 | C++ generated constants | 1.195 ms | 1.300 ms | 1.324 ms | 1.361 ms | 1.374 ms |
-| C++ lazy CAD evaluation | 4.045 ms | 4.200 ms | 4.219 ms | 4.373 ms | 4.431 ms |
-| Python checked manifest | 63.384 ms | 66.229 ms | 66.665 ms | 66.877 ms | 66.888 ms |
-| Python lazy CAD evaluation | 64.350 ms | 68.610 ms | 69.129 ms | 71.683 ms | 72.704 ms |
+| C++ runtime CAD evaluation | 4.045 ms | 4.200 ms | 4.219 ms | 4.373 ms | 4.431 ms |
+| Python generated manifest | 63.384 ms | 66.229 ms | 66.665 ms | 66.877 ms | 66.888 ms |
+| Python runtime CAD evaluation | 64.350 ms | 68.610 ms | 69.129 ms | 71.683 ms | 72.704 ms |
 
-The C++ processes execute the complete small kinematic plan. Lazy C++ evaluates
+The C++ processes execute the complete small kinematic plan. Runtime C++ evaluates
 the saved CAD twice, for the controller and physical model. Generated C++
-uses compiled constants and does not check their freshness at runtime. In this
+uses baked constants and does not check their freshness at runtime. In this
 run, their p99 estimates differed by 3.011 ms. A separate single timing for
 artifact generation was 2.676 ms; C++ compilation took 492.592 ms for the
-generated example and 871.858 ms for the lazy example, excluding the Rust
+generated example and 871.858 ms for the runtime example, excluding the Rust
 build.
 
 The Python processes use Python 3.14.7. Each starts a fresh interpreter,
-imports the package, loads parameters once, and prints the values. The checked
-manifest verifies the CAD and spec hashes; lazy mode parses and evaluates CAD.
+imports the package, loads parameters once, and prints the values. The generated
+manifest verifies the CAD and spec hashes; runtime mode parses and evaluates CAD.
 These numbers include interpreter startup and JSON output. They do not run a
 Python robot or simulation and cannot be compared directly to the C++ rows,
 which perform a different workload. Neither benchmark includes ROS, URDF export,
@@ -46,7 +46,8 @@ physics, Gazebo or Docker startup.
 Raw samples and input hashes: [C++ run](benchmarks/results/cpp-pick-place-2026-11-07-linux-x86_64.json)
 and [Python run](benchmarks/results/python-loader-2026-11-07-linux-x86_64.json).
 The JSON files retain the original temporary project path; the generated CAD
-files themselves are not included.
+files themselves are not included. The November 7 result files were relabeled to
+the generated/runtime names; the measured values are unchanged.
 
 ## Reproduce
 

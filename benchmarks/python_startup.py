@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Measure Python interpreter startup and a checked or lazy parameter load."""
+"""Measure Python interpreter startup and a generated or runtime parameter load."""
 import argparse
 import hashlib
 import json
@@ -13,11 +13,11 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'datum_interface/python'))
-from datum_interface import load, load_lazy
+from datum_interface import load_generated, load_runtime
 
 
 def execute(project, mode):
-    params = load(project / 'datum/parameters.json', worktree='main') if mode == 'manifest' else load_lazy(project)
+    params = load_generated(project / 'datum/parameters.json', worktree='main') if mode == 'generated' else load_runtime(project)
     print(json.dumps(params.values, sort_keys=True, allow_nan=False))
 
 
@@ -27,7 +27,7 @@ def main():
     parser.add_argument('--runs', type=int, default=30)
     parser.add_argument('--warmup', type=int, default=2)
     parser.add_argument('--output', type=Path)
-    parser.add_argument('--child', choices=['manifest', 'lazy'], help=argparse.SUPPRESS)
+    parser.add_argument('--child', choices=['generated', 'runtime'], help=argparse.SUPPRESS)
     args = parser.parse_args()
     project = args.project.resolve(strict=True)
     if args.child:
@@ -37,10 +37,10 @@ def main():
         parser.error('--runs must be positive and --warmup non-negative')
     spec = project / 'datum/spec.json'
     manifest = json.loads((project / 'datum/parameters.json').read_text())
-    samples = {'manifest': [], 'lazy': []}
+    samples = {'generated': [], 'runtime': []}
     expected = None
     for iteration in range(args.warmup + args.runs):
-        modes = ['manifest', 'lazy'] if iteration % 2 == 0 else ['lazy', 'manifest']
+        modes = ['generated', 'runtime'] if iteration % 2 == 0 else ['runtime', 'generated']
         for mode in modes:
             start = time.perf_counter_ns()
             result = subprocess.run([sys.executable, str(Path(__file__).resolve()), str(project), '--child', mode], check=True, capture_output=True, text=True)

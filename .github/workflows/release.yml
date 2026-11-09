@@ -50,6 +50,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist/dparams/include
+          cp rust/include/dparams_runtime.h dist/dparams/include/
           cp rust/include/dparams_lazy.h dist/dparams/include/
           cp LICENSE dist/dparams/
           if [ -n "${{ matrix.target }}" ]; then

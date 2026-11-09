@@ -3,19 +3,20 @@
 ## Goal and size
 
 Provide a portable entry point for coding agents integrating DParams into a user
-project. Keep one detailed guide, a short repository AGENTS.md and a README link.
-Do not require a provider-specific skill, MCP server, cloud account or Studio.
-Ship the guide as a Python package resource so it remains available after pip
-installation. Current main supports source installation; do not claim unpublished
-PyPI or native release artifacts are available.
+project. Keep one detailed guide, a short consumer entry point
+(`docs/AGENT_USAGE.md`), a separate repository/contributor `AGENTS.md`, and
+README links for each audience. Do not require a provider-specific skill, MCP
+server, cloud account or Studio. Ship the detailed guide as a Python package
+resource so it remains available after pip installation. Do not claim a PyPI or
+native release artifact is available unless the release actually exists.
 
 ## Guide interactions
 
 1. Identify project root, saved SolidCraft sources, language, selected spec worktree
    (a spec key, not a Git operation), and the exact runtime value needed. Inspect
    document.json read-only and validate the selected pointer against the actual file.
-2. Choose the fastest supported integration: Python load_lazy for iteration;
-   checked generated JSON for Python with reviewed artifacts; generated C++17
+2. Choose the fastest supported integration: Python `load_runtime` for iteration;
+   generated JSON for Python with reviewed artifacts; generated C++17
    header for minimal C++ integration; C ABI static library when startup evaluation
    is desired. Explain prerequisites per path; Docker and SolidCraft CLI are only
    needed for Studio rendering/export, not literal parameter extraction.
@@ -40,12 +41,14 @@ PyPI or native release artifacts are available.
 
 ## Implementation and checks
 
-The implementation adds the root entry point, packaged guide, README discovery,
-package-data metadata, and a bounded deterministic check of documented quickstart
-behavior using synthetic temporary CAD. The check verifies generation, both Python
-loading modes, compiled C++ consumption, stale-file rejection and guide inclusion in
-a built wheel, and runs in the existing PR CI rather than a new release pipeline. No
-user CAD or broad dependency changes were made.
+The implementation adds the consumer entry point, contributor guide, packaged
+guide, README discovery, package-data metadata, and a bounded deterministic check
+of documented quickstart behavior using synthetic temporary CAD. The check
+verifies generation, both Python loading modes, generated C++ header consumption,
+stale-file rejection, guide inclusion in a built wheel, and the separation and
+cross-linking of the contributor and consumer guides. It runs in the existing PR
+CI rather than a new release pipeline. No user CAD or broad dependency changes
+were made.
 
 Self-review covers correctness, discoverability, the shipped guide, executable
 examples, supported customization, optional Studio and required failure behavior.
