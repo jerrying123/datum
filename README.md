@@ -10,17 +10,17 @@ account, or cloud service.
 
 Each comparison uses the same changed robot design on both sides. The **stale**
 side deliberately uses baseline controller inputs; the **generated** side uses
-parameters from the changed design. Select a preview to watch the video.
+parameters from the changed design. The comparisons animate inline in the README.
 
-[![Pick-and-place comparison: stale parameters knock the cube off; generated parameters lift it](docs/media/dparams-comparisons/arm.png)](docs/media/dparams-comparisons/arm.mp4)
+![Pick-and-place comparison: stale parameters knock the cube off; generated parameters lift it](docs/media/dparams-comparisons/arm.gif)
 
-| Scenario | Comparison video |
+| Scenario | Comparison animation |
 |---|---|
-| Pick and place | [Watch the arm grasp and place](docs/media/dparams-comparisons/arm.mp4) |
-| Rover localization | [![Scan-to-map navigation](docs/media/dparams-comparisons/slam.png)](docs/media/dparams-comparisons/slam.mp4) |
-| Rover LQR control | [![LQR tracking](docs/media/dparams-comparisons/lqr.png)](docs/media/dparams-comparisons/lqr.mp4) |
-| Rover MPC control | [![MPC tracking](docs/media/dparams-comparisons/mpc.png)](docs/media/dparams-comparisons/mpc.mp4) |
-| Rover planning | [![Footprint-aware path selection](docs/media/dparams-comparisons/planning.png)](docs/media/dparams-comparisons/planning.mp4) |
+| Pick and place | ![Arm grasping and placing](docs/media/dparams-comparisons/arm.gif) |
+| Rover localization | ![Scan-to-map navigation](docs/media/dparams-comparisons/slam.gif) |
+| Rover LQR control | ![LQR tracking](docs/media/dparams-comparisons/lqr.gif) |
+| Rover MPC control | ![MPC tracking](docs/media/dparams-comparisons/mpc.gif) |
+| Rover planning | ![Footprint-aware path selection](docs/media/dparams-comparisons/planning.gif) |
 
 These are scripted PyBullet simulations. The arm uses contact physics; the rover
 uses a simplified primitive model. The localization example is local
