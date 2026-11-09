@@ -1,138 +1,128 @@
 # Datum Parameters
 
-DParams extracts explicit SolidCraft dimensions into a hash-checked JSON manifest and C++ header. The local Studio provides a mobile-friendly CAD viewer, parameter picker, and experimental URDF export/checking. It works on saved files without a Datum repository, account or cloud service.
+Datum Parameters (DParams) connects explicit dimensions in saved SolidCraft CAD
+to the code that uses them. Choose dimensions in the optional local Studio or
+write a spec directly, then use the generated Python manifest, C++ header, or
+startup evaluation API. DParams works without a Datum version-control project,
+account, or cloud service.
 
-## Install
+## See the demos
 
-You can install the Python runtime library via `pip`, download precompiled native CLI and C++ static library archives from GitHub Releases without cloning the repository, or build everything from a source checkout.
+Each comparison uses the same changed robot design on both sides. The **stale**
+side deliberately uses baseline controller inputs; the **generated** side uses
+parameters from the changed design. Select a preview to watch the video.
 
-### Python runtime package (pip)
+[![Pick-and-place comparison: stale parameters knock the cube off; generated parameters lift it](docs/media/dparams-comparisons/arm.png)](docs/media/dparams-comparisons/arm.mp4)
 
-The Python runtime loader (`datum_interface`) is published on PyPI as `datum-cad-parameters` (requires Python 3.10+):
+| Scenario | Comparison video |
+|---|---|
+| Pick and place | [Watch the arm grasp and place](docs/media/dparams-comparisons/arm.mp4) |
+| Rover localization | [![Scan-to-map navigation](docs/media/dparams-comparisons/slam.png)](docs/media/dparams-comparisons/slam.mp4) |
+| Rover LQR control | [![LQR tracking](docs/media/dparams-comparisons/lqr.png)](docs/media/dparams-comparisons/lqr.mp4) |
+| Rover MPC control | [![MPC tracking](docs/media/dparams-comparisons/mpc.png)](docs/media/dparams-comparisons/mpc.mp4) |
+| Rover planning | [![Footprint-aware path selection](docs/media/dparams-comparisons/planning.png)](docs/media/dparams-comparisons/planning.mp4) |
 
-```sh
-pip install datum-cad-parameters
-```
+These are scripted PyBullet simulations. The arm uses contact physics; the rover
+uses a simplified primitive model. The localization example is local
+scan-to-map navigation without global loop closure. LQR and MPC combine encoder
+odometry and controller-geometry drift, and the planning case uses ground-truth
+localization to isolate footprint selection. The recordings illustrate these
+scenarios, rather than hardware validation or a guarantee for other robots.
+The full simulation sources and evidence are not yet included in this repository.
+The videos use earlier API names; use the current commands below for new code.
 
-This provides the `datum_interface` package (`load_generated` and `load_runtime`) for consuming generated manifests or evaluating saved CAD at runtime in Python without compiling Rust or cloning the repository. The early `load` and `load_lazy` names remain as deprecated aliases.
+## Quick install
 
-### Native CLI & C++ static library (GitHub Release archive)
-
-Precompiled native bundles are published on [GitHub Releases](https://github.com/marker-labs/datum-params/releases) for Linux x86-64 (`datum-params-linux-x86_64.zip`), macOS Apple Silicon (`datum-params-macos-aarch64.zip`), macOS Intel (`datum-params-macos-x86_64.zip`), and Windows x86-64 (`datum-params-windows-x86_64.zip`).
-
-Download and unzip the archive for your platform without cloning the repository:
-
-```sh
-unzip datum-params-linux-x86_64.zip
-cd dparams
-```
-
-The self-contained archive includes:
-- `datum-params` (or `datum-params.exe` on Windows): standalone CLI executable to extract JSON manifests and C++ headers. You can move it to `/usr/local/bin` or place it on your `PATH`.
-- `include/dparams_runtime.h`: C ABI / C++ header for runtime CAD evaluation. The legacy `include/dparams_lazy.h` compatibility header is also included.
-- `libdatum_params_tools.a` (or `datum_params_tools.lib` on Windows): precompiled static library.
-- `example/`: bundled C++ kinematic pick-and-place comparison example that runs directly from the archive without Rust or Cargo.
-
-To compile your own C++ code against the bundled library and header without Rust:
-
-```sh
-c++ -std=c++17 -I include my_app.cpp libdatum_params_tools.a -lpthread -ldl -o my_app
-```
-
-To run the bundled C++ example from the extracted archive (requires a C++17 compiler, `sha256sum`, and `solidcraft-cli` on `PATH`):
+For the Python package and generator, install Python 3.10+, Rust and Cargo, then:
 
 ```sh
-example/run.sh /tmp/dparams-cpp-pick-place
-```
-
-### Developer install from clone (including Parameter Studio)
-
-Developing the Rust generator, modifying Parameter Studio, or running from source requires Python 3.10+, Rust/Cargo, Docker Compose, and a host installation of `solidcraft-cli` for CAD rendering and URDF export:
-
-```sh
-git clone https://github.com/marker-labs/datum-params.git
-cd datum-params
+git clone https://github.com/jerrying123/datum.git
+cd datum
 python3 -m venv .venv
 . .venv/bin/activate
-python -m pip install ./datum_interface ./parameter_studio
-cargo build --manifest-path rust/Cargo.toml --bins
-cargo install --path rust --bin datum-params --locked  # alternative developer install
-dparam-std up --source-repo "$PWD" --project /path/to/your/cad/project
+python -m pip install ./datum_interface
+cargo build --locked --manifest-path rust/Cargo.toml --bin datum-params
 ```
 
-Open http://localhost:8000. For a phone on your Tailscale network add `--tailscale` and use the URL printed by the launcher. Studio runs in the foreground; use another terminal for other commands. See [Studio instructions](parameter_studio/README.md).
+The Python runtime can read a spec and saved CAD without Rust after installation.
+The Rust binary is needed to generate a JSON manifest or C++ header. PyPI and
+precompiled native release bundles are planned but are not yet published; the
+[Releases page](https://github.com/jerrying123/datum/releases) will list them
+when available.
 
-## Agent integration
+## First use: Python without Studio
 
-Coding agents integrating DParams into another project should start with the
-short [package usage guide](docs/AGENT_USAGE.md) and the detailed, packaged
-[agent integration guide](datum_interface/python/datum_interface/AGENT_GUIDE.md).
-The guide covers the direct `datum/spec.json` path, both Python modes, generated
-and runtime C++, and the optional Studio workflow. After installation the same
-guide is available from the package:
-
-```sh
-python -c "from datum_interface import agent_guide; print(agent_guide())"
-```
-
-Studio is optional for these integrations; the spec can be authored directly.
-
-The API has two modes. Generated mode reads `PROJECT/datum/parameters.json`, which sits beside `PROJECT/datum/spec.json`:
-
-```python
-from datum_interface import load_generated
-params = load_generated('PROJECT/datum/parameters.json', worktree='main')
-print(params['forearm_length_m'])
-```
-
-It verifies the spec and saved CAD hashes: keep the exact downloaded spec beside the manifest. Runtime mode gives the same Parameters object without any generated artifacts by evaluating the spec and saved CAD eagerly at startup. A failed evaluation raises instead of returning values, so a run cannot fall back to an earlier evaluation; concurrent edits during evaluation are detected by the source-hash check, not blocked, and a process keeps the values it read at startup:
+1. Save your SolidCraft files in a project folder. Inspect a source file's
+   `document.json` and choose an explicit numeric dimension. The
+   [agent usage guide](docs/AGENT_USAGE.md) includes a complete spec example.
+2. Write `PROJECT/datum/spec.json` with the source path, JSON pointer, units and
+   a stable parameter name.
+3. Read the current saved CAD at startup:
 
 ```python
 from datum_interface import load_runtime
-params = load_runtime('PROJECT', worktree='main')              # no parameters.json needed
-params = load_runtime('PROJECT', evidence='evidence/runtime.json')  # machine-readable record
+
+params = load_runtime("PROJECT", worktree="main")
+print(params["forearm_length_m"])  # metres, if mapped in the spec
 ```
 
-The C++ side has the same choice: include a generated `parameters.hpp`, or include `rust/include/dparams_runtime.h` (or `include/dparams_runtime.h` in the release archive) and link the `libdatum_params_tools` static library and read the values at startup. The Rust generator and C ABI share one evaluation core; the Python loader is a separate implementation kept in step by cross-mode conformance tests. Snapshot-based generation belongs to the optional Datum integration and is not implemented in this standalone package.
+The worktree here is a key in the spec. Runtime values are a startup snapshot;
+reload after changing CAD or the spec. Literal numeric dimensions and supported
+named literal parameters can be mapped; arbitrary CAD expressions are not
+computed by DParams.
 
-Early 0.1.0 `load_lazy` and `dparams_lazy_*` names remain as deprecated compatibility aliases; new code should use the runtime names.
+## Generate artifacts for Python or C++
 
-## URDF export modes
-
-The URDF exists only because most robotics and simulation systems cannot load the saved CAD natively. Studio exports it on demand from the saved sources (**Generate and check**); the result is written to a scratch directory you download, never to the project. For a runtime bring-up without the checked-in file, `datum_parameter_studio.runtime_urdf` runs the same capture preflight and structural checker in-process, validates the output bundle for symlinks, containment and size, and hands back the URDF text plus its export bundle:
-
-```python
-from datum_parameter_studio.runtime_urdf import bring_up_urdf
-with bring_up_urdf('PROJECT', 'cad/arm_concept.solidcraft') as result:
-    robot_description = result.text      # URDF text exported from the live sources
-    result.write_bundle('runtime/robot') # URDF + meshes + STEP files, self-contained
-```
-
-Or stream it to stdout for a launch pipeline (add `--bundle-out DIR` for the geometry):
+Use the same spec and saved CAD to generate a manifest and header:
 
 ```sh
-python -m datum_parameter_studio.runtime_urdf --project PROJECT --assembly cad/arm_concept.solidcraft
+rust/target/debug/datum-params generate \
+  PROJECT PROJECT/datum/spec.json main \
+  PROJECT/datum/parameters.json PROJECT/datum/parameters.hpp
 ```
 
-Export runs against the saved CAD at evaluation time and is stamped with the source hashes and a freshness result; there is no committed URDF file to go stale. The bundle holds the exporter's current output for the captured inputs: every URDF-referenced STL (the structural check requires those meshes to resolve inside the bundle), a whole-assembly STEP on request from the exporter, and the content-addressed per-part STEP blobs embedded in the saved files, extracted with a SHA-256 name verification before each write. The report's `geometry` section records all of it with hashes. Exporter provenance and fidelity to native CAD geometry are not verified, per-part STEP blobs are not mapped to URDF links, and this path has no cancellation channel or worker heartbeat. Export still requires the installed SolidCraft CLI and accepts the same limited SolidCraft/34 profile as the Studio spool; physics readiness and source-to-URDF equivalence are not verified.
+Python can load the manifest with
+`load_generated("PROJECT/datum/parameters.json", worktree="main")`; it checks
+that the spec and recorded CAD hashes still match. C++ can include the generated
+header and use its `datum::robot::main` constants. The header contains baked-in
+values and does not perform runtime hash checks: regenerate and rebuild when
+inputs change. C++ can also evaluate saved CAD at startup through the C ABI;
+see the [C++ example](examples/cpp-pick-place/README.md).
 
-## C++ example
+## Use the Studio (optional)
 
-The [ROS 2 C++ pick-and-place example](examples/ros2_cpp_pick_place/README.md) uses generated dimensions with an `rclcpp` controller and action-based motor simulator. The companion [standalone C++ comparison](examples/cpp-pick-place/README.md) contrasts stale and current dimensions against the same kinematic arm, in a generated-header mode and a runtime mode that reads the CAD at startup with no generated files. It is bundled in the native release archive as `example/` and runs with the precompiled CLI and static library without Rust or Cargo.
+Install Docker with Compose and `solidcraft-cli` on the host for visual rendering
+and URDF export. From the activated source checkout:
 
-## Performance
+```sh
+python -m pip install ./parameter_studio
+dparam-std up --source-repo "$PWD" --project /path/to/your/cad/project
+```
 
-See [BENCHMARKS.md](BENCHMARKS.md) for startup measurements, their scope, and reproduction commands.
+Open <http://localhost:8000>. Add `--tailscale` to use the printed private
+Tailscale URL from another device on your tailnet. In Studio, select a part and
+an explicit feature or sketch dimension, add a named code parameter, then
+review and generate or download the spec and artifacts. Studio is optional:
+constants, derived values, bounds, groups and extra sources can also be authored
+directly in the spec. See the [Studio guide](parameter_studio/README.md).
 
-## Contributing
+## Examples and reference
 
-Agents modifying this repository should start with [AGENTS.md](AGENTS.md). It
-covers the repository layout, required checks, and contribution rules. If you
-are integrating DParams into another project, use the
-[package usage guide](docs/AGENT_USAGE.md) instead.
+- [Standalone C++ pick-and-place](examples/cpp-pick-place/README.md): generated
+  header and runtime evaluation against a kinematic arm.
+- [ROS 2 Jazzy C++ pick-and-place](examples/ros2_cpp_pick_place/README.md): an
+  `rclcpp` controller and action-based kinematic motor simulator.
+- [Agent package usage](docs/AGENT_USAGE.md) and the
+  [detailed integration guide](datum_interface/python/datum_interface/AGENT_GUIDE.md):
+  spec customization, error handling and C++/Python options. The detailed guide
+  is also available after installation with
+  `python -c "from datum_interface import agent_guide; print(agent_guide())"`.
+- [Benchmarks](BENCHMARKS.md): measured startup costs and their limits.
+- [Contributor instructions](AGENTS.md): changing this repository.
 
-## Scope
+Studio also supports experimental assembly-to-URDF export. Its structural
+checks do not certify CAD fidelity, mass properties or physics readiness; see
+the [Studio guide](parameter_studio/README.md#experimental-assembly-to-urdf).
 
-The URDF preview/export requires a separately installed SolidCraft CLI. The initial validator accepts a limited SolidCraft/34 assembly profile; coupling, transform equivalence, physical mass properties, and simulation or hardware readiness are not certified. A structural pass is not a fidelity or safety guarantee. Consult the Studio guide before using a generated file.
-
-Licensed under Apache-2.0. The SolidCraft executable is a separate dependency and is not included.
+Licensed under Apache-2.0. SolidCraft is a separate dependency and is not
+included.
