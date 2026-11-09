@@ -8,10 +8,10 @@ You can install the Python runtime library via `pip`, download precompiled nativ
 
 ### Python runtime package (pip)
 
-The Python runtime loader (`datum_interface`) is published on PyPI as `datum-cad-parameters` (requires Python 3.10+):
+The Python runtime loader (`datum_interface`) is configured for publication as `datum-parameters` (requires Python 3.10+). Once published, install it with:
 
 ```sh
-pip install datum-cad-parameters
+pip install datum-parameters
 ```
 
 This provides the `datum_interface` package (`load_generated` and `load_runtime`) for consuming generated manifests or evaluating saved CAD at runtime in Python without compiling Rust or cloning the repository. The early `load` and `load_lazy` names remain as deprecated aliases.

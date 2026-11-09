@@ -3,7 +3,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "datum-cad-parameters"
+name = "datum-parameters"
 version = "0.2.0"
 license = {text = "Apache-2.0"}
 description = "Runtime interface for Datum CAD-derived parameter manifests"
