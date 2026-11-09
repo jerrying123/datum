@@ -9,6 +9,9 @@ DParams extracts explicit dimensions from saved SolidCraft files into named
 values in metres, with generated manifests/headers and runtime evaluation. It
 also includes an optional local Studio and URDF helpers.
 
+The intended project boundary and optional local reference checkout are described in
+[`docs/PROJECT_CONTEXT.md`](docs/PROJECT_CONTEXT.md).
+
 ## Read first
 
 - [`README.md`](README.md) — install paths and user-visible workflows.
