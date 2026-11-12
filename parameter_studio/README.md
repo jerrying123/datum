@@ -62,3 +62,45 @@ two-link assembly. Direct joint positioning is not yet supported for Gazebo. Ava
 the application. Simulations use captured saved inputs and do not update if the
 CAD changes. Reset restores the captured model; start a new session to load edits.
 Physics fidelity and suitability are not established by visualization.
+
+## Frontend development and distribution
+
+Use Node.js 22 and npm from the repository root:
+
+```sh
+cd parameter_studio/datum_parameter_studio
+npm ci
+npm run typecheck
+npm run build
+npm run check:bundle
+```
+
+Author the browser entry at `frontend/src/app.ts`. The strict TypeScript check
+covers `frontend/src/**/*.ts`; esbuild bundles dependencies into the local ESM
+asset `public/app.js`. Keep `public/index.html` and `public/style.css` alongside
+it. Run the build after source changes and include the resulting `public/app.js`
+in the distribution. No CDN or build service is required at runtime.
+
+The Docker frontend builder runs `npm ci` and `npm run build` from source,
+then copies its bundle into the runtime image. Building the image requires the
+TypeScript entry and all imported modules to exist. Docker builds therefore
+also enforce the frontend typecheck. Python installation never invokes npm;
+maintainers must build the frontend before producing Python distributions:
+
+```sh
+# From the repository root, after the frontend commands above:
+python -m build parameter_studio
+```
+
+The sdist and wheel carry the public assets, TypeScript sources, tsconfig and
+npm manifests so an installed Studio can still supply a Docker build context.
+Dependency installation and image construction need dependencies available at
+build time; the running Studio uses local bundled assets and remains offline.
+When coordinating a conversion, land the TypeScript entry, its imports, the
+rebuilt public bundle and this tooling together. A missing entry fails the
+build explicitly.
+
+The source checkout also provides `npm run test:browser`, an offline browser
+smoke test. It requires a local Chromium executable; set `CHROMIUM_PATH` if the
+browser is not installed in Playwright's usual cache. It exercises the CAD
+catalog and simulation controls against local synthetic API responses.

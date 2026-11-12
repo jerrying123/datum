@@ -1,0 +1,32 @@
+name: Studio frontend
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install frontend dependencies and verify compiled bundle
+        working-directory: parameter_studio/datum_parameter_studio
+        run: |
+          npm ci
+          npm run typecheck
+          npm run check:bundle
+      - name: Exercise Studio offline in Chromium
+        working-directory: parameter_studio/datum_parameter_studio
+        run: CHROMIUM_PATH="$(command -v google-chrome)" npm run test:browser
+      - name: Validate source and wheel distributions
+        run: |
+          python -m pip install build
+          python -m build parameter_studio --outdir /tmp/datum-studio-dist
+          python scripts/validate_studio_dist.py /tmp/datum-studio-dist

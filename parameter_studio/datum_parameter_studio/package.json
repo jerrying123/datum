@@ -1,1 +1,24 @@
-{"name":"datum-parameter-studio","version":"0.1.0","private":true,"type":"module","scripts":{"start":"node server.js"},"dependencies":{"adm-zip":"^0.5.16","express":"^5.1.0","three":"^0.180.0"}}
+{
+  "name": "datum-parameter-studio",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "typecheck": "tsc --noEmit",
+    "build": "npm run typecheck && esbuild frontend/src/app.ts --bundle --format=esm --platform=browser --target=es2022 --minify --supported:template-literal=false --outfile=public/app.js",
+    "test:browser": "node ../tests/frontend_smoke.cjs",
+    "check:bundle": "node frontend/scripts/check-bundle.cjs"
+  },
+  "dependencies": {
+    "adm-zip": "^0.5.16",
+    "express": "^5.1.0",
+    "three": "^0.180.0"
+  },
+  "devDependencies": {
+    "@types/three": "0.180.0",
+    "esbuild": "0.25.12",
+    "playwright-core": "1.60.0",
+    "typescript": "5.9.3"
+  }
+}

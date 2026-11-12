@@ -13,7 +13,7 @@ requires-python = ">=3.10"
 dparam-std = "datum_parameter_studio.cli:main"
 
 [tool.setuptools.package-data]
-datum_parameter_studio = ["compose.yaml", "Dockerfile", "package.json", "package-lock.json", "server.js", "render_watcher.py", "public/*"]
+datum_parameter_studio = ["compose.yaml", "Dockerfile", "package.json", "package-lock.json", "server.js", "render_watcher.py", "public/*", "tsconfig.json", "frontend/src/*.ts", "frontend/src/**/*.ts", "frontend/scripts/*.cjs"]
 
 [tool.setuptools]
 packages = ["datum_parameter_studio", "datum_parameter_studio.simulations"]

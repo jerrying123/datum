@@ -132,3 +132,7 @@ the [Studio guide](parameter_studio/README.md#experimental-assembly-to-urdf).
 
 Licensed under Apache-2.0. SolidCraft is a separate dependency and is not
 included.
+
+Studio frontend contributors: see the [frontend build and distribution commands](parameter_studio/README.md#frontend-development-and-distribution).
+Build the TypeScript browser bundle before packaging Studio; pip installation does
+not install npm dependencies. Docker rebuilds the bundle from its authored source.
