@@ -10,7 +10,7 @@ from pathlib import Path
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Run the local DParams Studio with Docker Compose.")
+    parser = argparse.ArgumentParser(description="Run the local Datum Studio with Docker Compose.")
     parser.add_argument("action", nargs="?", choices=["up", "down", "logs"], default="up")
     parser.add_argument("--port", default=os.environ.get("DATUM_STUDIO_PORT", "8000"))
     parser.add_argument("--project", type=Path, default=Path.cwd(), help="CAD project folder to watch (default: current directory)")
@@ -102,7 +102,7 @@ def main():
                 status = json.loads(subprocess.check_output([tailscale, "status", "--json"], text=True))
                 hostname = status["Self"]["DNSName"].rstrip(".")
                 subprocess.run([tailscale, "serve", "--bg", "--https=8443", f"http://127.0.0.1:{args.port}"], check=True)
-                print(f"DParams Studio: https://{hostname}:8443 (available when Compose finishes starting)", flush=True)
+                print(f"Datum Studio: https://{hostname}:8443 (available when Compose finishes starting)", flush=True)
         subprocess.run(command, env=env, check=True)
     except BaseException:
         if sim_worker is not None and sim_worker.poll() is None:
@@ -115,7 +115,7 @@ def main():
             sim_pid.unlink(missing_ok=True)
         raise
     if args.action == "up" and not args.tailscale:
-        print(f"DParams Studio: http://localhost:{args.port}")
+        print(f"Datum Studio: http://localhost:{args.port}")
     elif args.action == "down":
         sim_owned = owned_sim_worker()
         if sim_owned:

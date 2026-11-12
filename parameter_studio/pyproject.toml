@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "datum-parameter-studio"
 version = "0.1.0"
 license = {text = "Apache-2.0"}
-description = "Local Docker Compose launcher for Datum Parameter Studio"
+description = "Local Docker Compose launcher for Datum Studio"
 requires-python = ">=3.10"
 
 [project.scripts]

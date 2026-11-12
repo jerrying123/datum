@@ -1,4 +1,4 @@
-# DParams Studio
+# Datum Studio
 
 Start from the [repository installation instructions](../README.md), providing a project folder containing saved `.solidcraft` files. Use `--tailscale` to expose the local service to your tailnet, or open http://localhost:8000 on the host. Compose keeps the CAD project read-only. The host preview and URDF workers need `solidcraft-cli`; the first container build compiles the Rust generator.
 

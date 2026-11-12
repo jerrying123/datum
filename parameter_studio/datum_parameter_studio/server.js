@@ -289,4 +289,4 @@ app.get('/api/simulation/sessions/:id/commands/:commandId',async(req,res)=>{
 });
 
 app.get('/healthz',(_,res)=>res.json({ok:true}));
-app.listen(Number(process.env.DATUM_STUDIO_PORT||8080),'0.0.0.0',()=>console.log('Datum Parameter Studio listening'));
+app.listen(Number(process.env.DATUM_STUDIO_PORT||8080),'0.0.0.0',()=>console.log('Datum Studio listening'));
