@@ -11,3 +11,32 @@ Choose a saved assembly, then open **Export URDF** in the tools panel and select
 The Studio spool is one way to export the URDF on demand. A second, scriptable path skips the spool and the checked-in file entirely: `datum_parameter_studio.runtime_urdf` captures the saved sources, exports into an isolated scratch directory, runs the same structural checker, validates the output bundle for symlinks, containment and size, and returns the URDF text plus a report with source hashes and a freshness result. The result's `bundle` holds the exporter's current output for the captured inputs; `write_bundle`/`--bundle-out` copy the URDF, per-link STLs, assembly STEP and verified part STEP blobs into a directory you keep, since the URDF's relative mesh references need those files beside it. Exporter provenance and fidelity to native CAD are not verified, and this path has no cancellation channel or worker heartbeat (see the [repository README](../README.md#urdf-export-modes) for `bring_up_urdf` and the streaming CLI).
 
 The code is independent of Datum version control. Integrations with Datum snapshots must be supplied separately. Tailscale Serve uses a private tailnet HTTPS endpoint on port 8443; disable it with `tailscale serve --https=8443 off` when no longer needed.
+
+Runtime and Studio export reports include `cad_urdf_fidelity_checks`, which
+compare uniquely named joint types and limits against the captured saved CAD.
+An ambiguous mapping is unknown. The overall result remains unknown unless a
+mismatch is found, because geometry, frames, axes and occurrence mapping are
+not established. `physics_checks` reports mass and inertia plausibility and
+collision diagnostics; uninspectable mesh formats are unknown. These checks do
+not verify material provenance, collision fidelity, or physics readiness.
+
+## Experimental simulator input
+
+`datum_parameter_studio.simulation.simulation_input(project, assembly)` is a
+context manager for simulation consumers. It exports from saved CAD using
+`bring_up_urdf`, requires a current freshness report and rejects known assembly
+fidelity failures, validates the structural bundle, and keeps its meshes alive until the
+context exits. It does not certify physics correctness or native CAD equivalence.
+Existing arbitrary URDF bundles are currently refused because their freshness
+and fidelity cannot be verified. The runnable example in
+`examples/pybullet_sim/` includes a primitive one-joint arm URDF, so its default
+mode needs no SolidCraft installation or project. Install PyBullet with
+`python -m pip install pybullet`, then run headless from the repository root:
+`python examples/pybullet_sim/demo.py`. It drives the arm joint and prints its
+final position. Add `--gui` to view it. To simulate saved SolidCraft data,
+install `parameter_studio` and pass `--project PROJECT --assembly PATH.solidcraft`;
+the example uses `simulation_input` to validate and retain the exported meshes.
+Run `python -m unittest examples/pybullet_sim/test_demo.py` to exercise the
+actual PyBullet demo when that optional dependency is installed (otherwise the
+test is skipped). The included native CAD demo and its prerequisites are described
+in the [simulation example](../examples/pybullet_sim/README.md).
