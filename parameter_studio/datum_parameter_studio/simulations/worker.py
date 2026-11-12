@@ -35,13 +35,14 @@ def capabilities():
     return {name: {'supported': importlib.util.find_spec(module) is not None,
                    'dependency': module, 'commands': list(Session.commands)}
             for name, module in [('mujoco', 'mujoco'), ('pybullet', 'pybullet')]} | {
-        'gazebo': {**gazebo_capability(), 'commands': [c for c in Session.commands if c != 'set_joint']}}
+        'gazebo': {**gazebo_capability(), 'commands': [c for c in Session.commands if c not in ('set_joint', 'set_position_control')]}}
 
 
 class Engine:
     def __init__(self, backend, path):
         self.backend = backend
         self.client = None
+        self.actuators = {}
         if backend == 'mujoco':
             import mujoco
             self.api = mujoco
@@ -69,6 +70,9 @@ class Engine:
                 pybullet.setGravity(0, 0, -9.81, physicsClientId=self.client)
                 pybullet.setTimeStep(1 / 240, physicsClientId=self.client)
                 self.body = pybullet.loadURDF(str(path), useFixedBase=True, physicsClientId=self.client)
+                for i in range(pybullet.getNumJoints(self.body, physicsClientId=self.client)):
+                    if pybullet.getJointInfo(self.body, i, physicsClientId=self.client)[2] in (pybullet.JOINT_REVOLUTE, pybullet.JOINT_PRISMATIC):
+                        pybullet.setJointMotorControl2(self.body, i, pybullet.VELOCITY_CONTROL, force=0, physicsClientId=self.client)
                 self.saved = pybullet.saveState(physicsClientId=self.client)
                 self.t = 0.
             except Exception:
@@ -78,6 +82,16 @@ class Engine:
             raise ValueError('Unsupported backend: ' + str(backend))
 
     def step(self):
+        # PD gains use SI joint units; effort is N for slides and N m for hinges.
+        for i, (target, kp, kd, limit) in self.actuators.items():
+            if self.backend == 'mujoco':
+                dof = self.model.jnt_dofadr[i]
+                q, v = self.data.qpos[self.model.jnt_qposadr[i]], self.data.qvel[dof]
+                self.data.qfrc_applied[dof] = max(-limit, min(limit, kp * (target - q) - kd * v))
+            else:
+                q, v = self.api.getJointState(self.body, i, physicsClientId=self.client)[:2]
+                effort = max(-limit, min(limit, kp * (target - q) - kd * v))
+                self.api.setJointMotorControl2(self.body, i, self.api.TORQUE_CONTROL, force=effort, physicsClientId=self.client)
         if self.backend == 'mujoco':
             self.api.mj_step(self.model, self.data)
         else:
@@ -85,14 +99,17 @@ class Engine:
             self.t += 1 / 240
 
     def reset(self):
+        self.actuators.clear()
         if self.backend == 'mujoco':
             self.api.mj_resetData(self.model, self.data)
             self.api.mj_forward(self.model, self.data)
         else:
             self.api.restoreState(self.saved, physicsClientId=self.client)
+            for i in range(self.api.getNumJoints(self.body, physicsClientId=self.client)):
+                self.api.setJointMotorControl2(self.body, i, self.api.VELOCITY_CONTROL, force=0, physicsClientId=self.client)
             self.t = 0.
 
-    def set_joint(self, name, value):
+    def _joint(self, name, value):
         if not isinstance(name, str) or not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(value):
             raise ValueError('Joint and finite position are required')
         if self.backend == 'mujoco':
@@ -102,9 +119,7 @@ class Engine:
                 raise ValueError('Unknown or unsupported joint')
             if m.jnt_limited[index] and not m.jnt_range[index, 0] <= value <= m.jnt_range[index, 1]:
                 raise ValueError('Position outside joint limits')
-            self.data.qpos[m.jnt_qposadr[index]] = value
-            self.data.qvel[m.jnt_dofadr[index]] = 0
-            a.mj_forward(m, self.data)
+            return index
         else:
             a, c, b = self.api, self.client, self.body
             for i in range(a.getNumJoints(b, physicsClientId=c)):
@@ -112,9 +127,27 @@ class Engine:
                 if info[1].decode() == name and info[2] in (a.JOINT_REVOLUTE, a.JOINT_PRISMATIC):
                     if info[8] <= info[9] and not info[8] <= value <= info[9]:
                         raise ValueError('Position outside joint limits')
-                    a.resetJointState(b, i, value, targetVelocity=0, physicsClientId=c)
-                    return
+                    return i
             raise ValueError('Unknown or unsupported joint')
+
+    def set_joint(self, name, value):
+        i = self._joint(name, value)
+        if self.backend == 'mujoco':
+            self.data.qpos[self.model.jnt_qposadr[i]] = value
+            self.data.qvel[self.model.jnt_dofadr[i]] = 0
+            self.api.mj_forward(self.model, self.data)
+        else:
+            self.api.resetJointState(self.body, i, value, targetVelocity=0, physicsClientId=self.client)
+
+    def set_position_control(self, name, target, profile):
+        if not isinstance(profile, dict) or set(profile) != {'kp', 'kd', 'max_force'}:
+            raise ValueError('Profile requires kp, kd and max_force')
+        for key in ('kp', 'kd', 'max_force'):
+            x = profile[key]
+            if isinstance(x, bool) or not isinstance(x, (int, float)) or not math.isfinite(x) or x < 0 or (key == 'max_force' and x == 0):
+                raise ValueError('Invalid actuator profile')
+        i = self._joint(name, target)
+        self.actuators[i] = (target, profile['kp'], profile['kd'], profile['max_force'])
 
     def snapshot(self):
         if self.backend == 'mujoco':
@@ -149,7 +182,7 @@ class Engine:
 
 
 class Session:
-    commands = ('pause', 'resume', 'step', 'reset', 'stop', 'record_start', 'record_stop', 'set_joint')
+    commands = ('pause', 'resume', 'step', 'reset', 'stop', 'record_start', 'record_stop', 'set_joint', 'set_position_control')
 
     def __init__(self, project, directory):
         self.project, self.directory = project, Path(directory)
@@ -221,6 +254,9 @@ class Session:
                     if self.state != 'paused': raise ValueError('Pause before setting joint positions')
                     if not hasattr(self.engine, 'set_joint'): raise ValueError('Joint positioning unavailable for this backend')
                     self.engine.set_joint(item.get('joint'), item.get('position'))
+                elif command == 'set_position_control':
+                    if not hasattr(self.engine, 'set_position_control'): raise ValueError('Position control unavailable for this backend')
+                    self.engine.set_position_control(item.get('joint'), item.get('position'), item.get('profile'))
                 elif command == 'record_start' and self.record is None:
                     folder = self.directory / 'recordings'
                     folder.mkdir(exist_ok=True)
@@ -233,12 +269,12 @@ class Session:
                         'backend_version': getattr(getattr(self.engine, 'api', None), '__version__', None),
                         'started_at_unix': time.time()}, allow_nan=False) + '\n')
                 elif command == 'record_stop' and self.record:
-                    self.record.write(json.dumps({'type':'command','command':command,'joint':item.get('joint'),'position':item.get('position'),'epoch':self.epoch,'seq':self.seq}) + '\n')
+                    self.record.write(json.dumps({'type':'command','command':command,'joint':item.get('joint'),'position':item.get('position'),'profile':item.get('profile'),'epoch':self.epoch,'seq':self.seq}) + '\n')
                     self.seq += 1
                     self.publish()
                     self.record.close(); self.record = None
                 if self.record:
-                    self.record.write(json.dumps({'type':'command','command':command,'joint':item.get('joint'),'position':item.get('position'),'epoch':self.epoch,'seq':self.seq}) + '\n')
+                    self.record.write(json.dumps({'type':'command','command':command,'joint':item.get('joint'),'position':item.get('position'),'profile':item.get('profile'),'epoch':self.epoch,'seq':self.seq}) + '\n')
                 self.error = None
             except (ValueError, KeyError, OSError) as exc:
                 self.error = str(exc)

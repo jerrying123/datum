@@ -77,7 +77,7 @@ export function $(selector: keyof typeof studioControls): HTMLElement {
 const simulationControls = {
     start: HTMLButtonElement, pause: HTMLButtonElement, resume: HTMLButtonElement,
     step: HTMLButtonElement, reset: HTMLButtonElement, stop: HTMLButtonElement,
-    record: HTMLButtonElement, reconnect: HTMLButtonElement, 'set-joint': HTMLButtonElement,
+    record: HTMLButtonElement, reconnect: HTMLButtonElement, 'set-joint': HTMLButtonElement, 'drive-joint': HTMLButtonElement, kp: HTMLInputElement, kd: HTMLInputElement, 'max-force': HTMLInputElement,
     assembly: HTMLSelectElement, backend: HTMLSelectElement, joint: HTMLSelectElement,
     position: HTMLInputElement, capabilities: HTMLParagraphElement, status: HTMLParagraphElement,
     view: HTMLDivElement, 'view-status': HTMLParagraphElement, telemetry: HTMLPreElement,

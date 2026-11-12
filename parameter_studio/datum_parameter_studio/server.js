@@ -260,10 +260,13 @@ app.get('/api/simulation/sessions/:id/:artifact',async(req,res)=>{
 });
 app.post('/api/simulation/sessions/:id/commands',async(req,res)=>{
   const body=req.body;
-  const commands=['pause','resume','step','reset','stop','record_start','record_stop','set_joint'];
+  const commands=['pause','resume','step','reset','stop','record_start','record_stop','set_joint','set_position_control'];
   if(!body||Array.isArray(body)||!commands.includes(body.command)) return res.status(400).json({error:'Invalid command.'});
   if(body.command==='set_joint') {
     if(Object.keys(body).sort().join(',')!=='command,joint,position'||typeof body.joint!=='string'||!body.joint||body.joint.length>256||typeof body.position!=='number'||!Number.isFinite(body.position)) return res.status(400).json({error:'Provide a joint and finite position.'});
+  } else if(body.command==='set_position_control') {
+    const profile=body.profile;
+    if(Object.keys(body).sort().join(',')!=='command,joint,position,profile'||typeof body.joint!=='string'||!body.joint||body.joint.length>256||typeof body.position!=='number'||!Number.isFinite(body.position)||!profile||typeof profile!=='object'||Array.isArray(profile)||Object.keys(profile).sort().join(',')!=='kd,kp,max_force'||!['kp','kd','max_force'].every(k=>typeof profile[k]==='number'&&Number.isFinite(profile[k])&&profile[k]>=0)||profile.max_force===0) return res.status(400).json({error:'Provide a joint, finite target, and valid actuator profile.'});
   } else if(Object.keys(body).join(',')!=='command') return res.status(400).json({error:'Invalid command arguments.'});
   const previous=simLock; let release; simLock=new Promise(r=>{release=r;}); await previous;
   try {

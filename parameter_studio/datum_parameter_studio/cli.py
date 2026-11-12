@@ -94,7 +94,7 @@ def main():
                 log = open(preview_dir / "watcher.log", "ab", buffering=0)
                 child = subprocess.Popen([sys.executable, "-m", "datum_parameter_studio.render_watcher", str(project), str(preview_dir), executable], start_new_session=True, stdout=log, stderr=log)
                 pid_file.write_text(str(child.pid))
-            command.append("--build")
+            command.extend(["--build", "--detach"])
             if args.tailscale:
                 tailscale = shutil.which("tailscale")
                 if not tailscale:

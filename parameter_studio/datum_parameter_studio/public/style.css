@@ -69,3 +69,9 @@ body[data-tab=parts] .workspace-panel [data-panel=parts],body[data-tab=features]
 }
 /* Fallback text remains legible while the model renderer is unavailable. */
 .preview-card #preview{color:#dce7e1;text-align:center}
+
+@media(min-width:701px){.workspace-panel{width:min(520px,48vw)}}
+.simulation-panel label{display:block;margin:10px 0}.simulation-panel button{margin:3px}.simulation-panel select{max-width:100%}
+
+body[data-tab=simulation] .workspace-panel [data-panel=simulation]{display:block}
+@media(max-width:700px){.workspace-tabs{grid-template-columns:repeat(2,minmax(0,1fr))}}

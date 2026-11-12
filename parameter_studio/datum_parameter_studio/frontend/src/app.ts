@@ -21,7 +21,7 @@ let viewportRenderer: THREE.WebGLRenderer | null = null;
 let viewportControls: OrbitControls | null = null;
 let resizeObserver: ResizeObserver | null = null;
 let viewportState: 'idle' | 'loading' | 'ready' | 'failed' = 'idle';
-type WorkspaceTab = 'parts' | 'features' | 'mappings' | 'export';
+type WorkspaceTab = 'parts' | 'features' | 'mappings' | 'export' | 'simulation';
 let activeTab: WorkspaceTab = 'parts';
 let navigation: string[] = [];
 let storageKey: string | null = null;
@@ -41,13 +41,13 @@ function showTab(tab: WorkspaceTab) {
     updateFlow();
 }
 function showDatasetTab(tab: string | undefined) {
-    if (tab === 'parts' || tab === 'features' || tab === 'mappings' || tab === 'export')
+    if (tab === 'parts' || tab === 'features' || tab === 'mappings' || tab === 'export' || tab === 'simulation')
         showTab(tab);
 }
 function updateFlow() {
     const status = $('#flow-status');
     if (status)
-        status.textContent = activeTab === 'parts' ? 'Choose a source part, then continue to Dimensions.' : activeTab === 'features' ? 'Choose a feature and add a dimension as a code parameter.' : activeTab === 'mappings' ? `${mappings.length} code parameter${mappings.length === 1 ? '' : 's'} selected. Review names, then generate.` : 'Generate files from the selected code parameters.';
+        status.textContent = activeTab === 'simulation' ? 'Simulate the selected assembly.' : activeTab === 'parts' ? 'Choose a source part, then continue to Dimensions.' : activeTab === 'features' ? 'Choose a feature and add a dimension as a code parameter.' : activeTab === 'mappings' ? `${mappings.length} code parameter${mappings.length === 1 ? '' : 's'} selected. Review names, then generate.` : 'Generate files from the selected code parameters.';
 }
 document.querySelectorAll<HTMLElement>('[data-go]').forEach(b => b.onclick = () => showDatasetTab(b.dataset.go));
 document.querySelectorAll<HTMLElement>('[data-tab]').forEach(b => b.onclick = () => showDatasetTab(b.dataset.tab));
@@ -1169,13 +1169,14 @@ reconnectUrdf();
     }
     let view: SimulationView | null = null;
     let pollGeneration = 0;
+    let lastStatus: SimulationStatus | null = null;
     const el = simulationElement, terminal = new Set(['stopped', 'failed', 'cancelled']);
     const headers = () => ({ 'X-Dparams-Capability': capability?.capability || '' });
     async function req<T>(url: string, guard: Guard<T>, options: RequestInit = {}): Promise<T> {
         return contract.jsonResponse(await fetch(url, {cache:'no-store', ...options}), guard);
     }
     function assemblies() {
-        const select = el('assembly'), prev = select.value;
+        const select = el('assembly');
         select.replaceChildren();
         for (const f of files) {
             const o = document.createElement('option');
@@ -1183,17 +1184,21 @@ reconnectUrdf();
             o.textContent = f.path;
             select.append(o);
         }
-        select.value = files.some(f => f.path === prev) ? prev : (selectedPath || select.options[0]?.value || '');
+        select.value = selectedPath || '';
+        select.disabled = true;
+        buttons(lastStatus);
     }
     function buttons(status: SimulationStatus | null) {
+        lastStatus = status;
         const s = status?.state, active = s === 'paused' || s === 'running';
-        el('start').disabled = !capability?.available || !capability.backends?.[el('backend').value.toLowerCase()]?.supported || !!(session && !terminal.has(s || ''));
+        el('start').disabled = !selectedPath || !capability?.available || !capability.backends?.[el('backend').value.toLowerCase()]?.supported || !!(session && !terminal.has(s || ''));
         for (const action of ['pause', 'resume', 'step', 'reset', 'stop', 'record'] as const)
             el(action).disabled = !active;
         el('pause').disabled = s !== 'running';
         el('resume').disabled = s !== 'paused';
         el('step').disabled = s !== 'paused';
         el('record').textContent = status?.recording ? 'Stop recording' : 'Start recording';
+        el('drive-joint').disabled = !['paused', 'running'].includes(s || '') || !el('joint').options.length || !capability?.backends?.[session?.backend || '']?.commands?.includes('set_position_control');
         el('set-joint').disabled = s !== 'paused' || !el('joint').options.length || !capability?.backends?.[session?.backend || '']?.commands?.includes('set_joint');
     }
     function closeView() {
@@ -1330,6 +1335,7 @@ reconnectUrdf();
                     if (names.includes(previous))
                         joint.value = previous;
                 }
+                el('drive-joint').disabled = !['paused', 'running'].includes(status.state) || !names.length || !capability?.backends?.[current.backend]?.commands?.includes('set_position_control');
                 el('set-joint').disabled = status.state !== 'paused' || !names.length || !capability?.backends?.[current.backend]?.commands?.includes('set_joint');
                 el('telemetry').textContent = `Time: ${Number(state.time || 0).toFixed(3)} s · reset ${state.epoch}\nJoints: ${JSON.stringify(state.joints)}`;
                 el('record').dataset.recording = status.recording ? 'yes' : 'no';
@@ -1448,6 +1454,11 @@ reconnectUrdf();
                 el('status').textContent = errorMessage(e);
         }
     }
+    el('drive-joint').onclick = () => {
+        const position = el('position').valueAsNumber, kp = el('kp').valueAsNumber, kd = el('kd').valueAsNumber, max_force = el('max-force').valueAsNumber;
+        if ([position, kp, kd, max_force].every(Number.isFinite) && kp >= 0 && kd >= 0 && max_force > 0) command({ command: 'set_position_control', joint: el('joint').value, position, profile: { kp, kd, max_force } });
+        else el('status').textContent = 'Enter a finite target, non-negative gains, and a positive force limit.';
+    };
     el('set-joint').onclick = () => {
         const position = el('position').valueAsNumber;
         if (Number.isFinite(position))

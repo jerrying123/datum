@@ -178,9 +178,10 @@ export interface SimulationRecordings {
     recordings?: string[];
 }
 
-export type SimulationCommand = 'pause' | 'resume' | 'step' | 'reset' | 'stop' | 'record_start' | 'record_stop' | 'set_joint';
-export type SimulationCommandRequest = { command: Exclude<SimulationCommand, 'set_joint'> }
-    | { command: 'set_joint'; joint: string; position: number };
+export type SimulationCommand = 'pause' | 'resume' | 'step' | 'reset' | 'stop' | 'record_start' | 'record_stop' | 'set_joint' | 'set_position_control';
+export type SimulationCommandRequest = { command: Exclude<SimulationCommand, 'set_joint' | 'set_position_control'> }
+    | { command: 'set_joint'; joint: string; position: number }
+    | { command: 'set_position_control'; joint: string; position: number; profile: { kp: number; kd: number; max_force: number } };
 export interface CommandReceipt {
     id: string;
 }

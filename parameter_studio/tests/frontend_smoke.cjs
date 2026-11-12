@@ -22,7 +22,7 @@ const net = require('node:net');
   browser=await chromium.launch({headless:true,executablePath:process.env.CHROMIUM_PATH,args:['--no-sandbox','--disable-dev-shm-usage']});
   const context=await browser.newContext();const page=await context.newPage();const errors=[],external=[];page.on('pageerror',e=>errors.push(String(e)));
   page.on('request',request=>{if(new URL(request.url()).origin!==url)external.push(request.url())});
-  let state='paused',recording=false,epoch=0,simtime=0,session=false,invalidStatus=false,invalidJson=false;const requests=[];
+  let state='paused',recording=false,epoch=0,simtime=0,session=false,invalidStatus=false,invalidJson=false;const requests=[], commandBodies=[];
   const cad={project_id:'test-project',files:[{path:'robot.solidcraft',units:'mm',fingerprint:'a'.repeat(64),previewId:'b'.repeat(64),features:[],components:[],occurrences:[],links:{},params:[],sketches:[],fields:[]}]};
   await page.route('**/api/**',async route=>{
    const request=route.request(),u=new URL(request.url()),p=u.pathname;requests.push([request.method(),p]);let body={};
@@ -31,10 +31,10 @@ const net = require('node:net');
    else if(p==='/api/urdf/capabilities')body={available:true,capability:'test-token'};
    else if(p==='/api/urdf/jobs'&&request.method()==='POST')body={id:'d'.repeat(32)};
    else if(p===`/api/urdf/jobs/${'d'.repeat(32)}`)body={state:'succeeded',report:{source_preflight:{issues:null}}};
-   else if(p==='/api/simulation/capabilities')body={available:true,capability:'test-token',backends:{mujoco:{supported:true,commands:['set_joint']},pybullet:{supported:true,commands:['set_joint']},gazebo:{supported:false,reason:'not installed'}}};
+   else if(p==='/api/simulation/capabilities')body={available:true,capability:'test-token',backends:{mujoco:{supported:true,commands:['set_joint','set_position_control']},pybullet:{supported:true,commands:['set_joint','set_position_control']},gazebo:{supported:false,reason:'not installed'}}};
    else if(p==='/api/simulation/sessions'&&request.method()==='POST'){session=true;body={id:'a'.repeat(32)}}
    else if(p==='/api/simulation/sessions')body={sessions:session?[{id:'a'.repeat(32),backend:'mujoco',assembly:'robot.solidcraft',state}]:[]};
-   else if(p.endsWith('/commands')&&request.method()==='POST'){const command=request.postDataJSON().command;if(command==='resume')state='running';if(command==='pause')state='paused';if(command==='step')simtime+=.01;if(command==='reset'){simtime=0;epoch++}if(command==='record_start')recording=true;if(command==='record_stop')recording=false;if(command==='stop')state='stopped';body={id:'b'.repeat(32)}}
+   else if(p.endsWith('/commands')&&request.method()==='POST'){const payload=request.postDataJSON();commandBodies.push(payload);const command=payload.command;if(command==='resume')state='running';if(command==='pause')state='paused';if(command==='step')simtime+=.01;if(command==='reset'){simtime=0;epoch++}if(command==='record_start')recording=true;if(command==='record_stop')recording=false;if(command==='stop')state='stopped';body={id:'b'.repeat(32)}}
    else if(p.includes('/commands/'))body={status:'applied'};
    else if(p.endsWith('/scene'))body={links:[]};
    else if(p.endsWith('/state'))body={time:simtime,epoch,seq:1,links:[],joints:[{id:'hinge',position:0,velocity:0}]};
@@ -60,10 +60,18 @@ const net = require('node:net');
   await page.locator('.urdf-panel > summary').click();
   await page.locator('#urdf-start:not([disabled])').click();
   await page.getByText(/Connection interrupted: Unexpected response from Studio API/).waitFor();
-  await page.locator('.simulation-panel > summary').click();
+  await page.locator('[data-tab=simulation]').click();
   await page.locator('#sim-start:not([disabled])').waitFor();
   await page.locator('#sim-start').click();
   await page.getByText('paused · mujoco').waitFor();
+  await page.locator('#sim-position').fill('0.4');
+  await page.locator('#sim-kp').fill('12');
+  await page.locator('#sim-kd').fill('2');
+  await page.locator('#sim-max-force').fill('5');
+  const driveResponse = page.waitForResponse(response => response.request().method() === 'POST' && response.url().endsWith('/commands') && response.request().postDataJSON()?.command === 'set_position_control');
+  await page.locator('#sim-drive-joint:not([disabled])').click();
+  await driveResponse;
+  assert(commandBodies.some(x => x.command === 'set_position_control' && x.joint === 'hinge' && x.position === 0.4 && x.profile.kp === 12 && x.profile.kd === 2 && x.profile.max_force === 5));
   await page.locator('#sim-step:not([disabled])').click();
   await page.getByText(/Time: 0\.010/).waitFor();
   await page.locator('#sim-record').click();await page.getByRole('button',{name:'Stop recording'}).waitFor();

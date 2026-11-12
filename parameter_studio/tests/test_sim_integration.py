@@ -73,6 +73,15 @@ class IntegrationTest(unittest.TestCase):
                     self.assertEqual(ack['status'], 'applied', ack)
                     positioned = until(lambda:req(uri+'/state'),lambda x:any(j.get('id')=='hinge' and abs(j['position']-0.4)<1e-5 for j in x.get('joints',[])))
                     self.assertTrue(positioned['joints'])
+                    drive = {'command':'set_position_control', 'joint':'hinge', 'position':0.2,
+                             'profile':{'kp':12, 'kd':2, 'max_force':5}}
+                    with self.assertRaises(HTTPError) as invalid:
+                        req(uri+'/commands', {**drive, 'profile':{**drive['profile'], 'max_force':0}}, token)
+                    self.assertEqual(invalid.exception.code, 400)
+                    invalid.exception.close()
+                    command = req(uri+'/commands', drive, token)
+                    ack = until(lambda:req(uri+'/commands/'+command['id']), lambda x:x.get('status') in ('applied','rejected','unknown'))
+                    self.assertEqual(ack['status'], 'applied', ack)
                     req(uri+'/commands',{'command':'step'},token)
                     stepped=until(lambda:req(uri),lambda x:x.get('time',0)>0 or x.get('error'))
                     self.assertFalse(stepped.get('error'), stepped)

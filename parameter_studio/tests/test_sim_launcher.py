@@ -26,3 +26,20 @@ class LauncherTest(unittest.TestCase):
             process.terminate.assert_called_once()
             process.wait.assert_called_once()
             self.assertFalse((root/'.dparams-studio/sim-jobs/worker.pid').exists())
+
+    def test_up_detaches_compose_and_keeps_supervisor_running(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / 'rust').mkdir()
+            (root / 'rust/Cargo.toml').write_text('')
+            (root / 'parameter_studio/datum_parameter_studio').mkdir(parents=True)
+            (root / 'parameter_studio/datum_parameter_studio/Dockerfile').write_text('')
+            process = Mock(pid=os.getpid())
+            with patch('sys.argv', ['dparam-std', 'up', '--project', str(root), '--source-repo', str(root)]), \
+                 patch('datum_parameter_studio.cli.shutil.which', side_effect=lambda name: '/usr/bin/docker' if name == 'docker' else None), \
+                 patch('datum_parameter_studio.cli.subprocess.Popen', return_value=process), \
+                 patch('datum_parameter_studio.cli.subprocess.run') as run:
+                cli.main()
+            self.assertIn('--detach', run.call_args.args[0])
+            process.terminate.assert_not_called()
+            self.assertTrue((root / '.dparams-studio/sim-jobs/worker.pid').exists())

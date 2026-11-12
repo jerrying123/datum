@@ -73,7 +73,7 @@ export const isUrdfJob: Validator<UrdfJob> = (value): value is UrdfJob =>
 export const isUrdfCancellation = (value: unknown): value is { cancelled: true } =>
     isRecord(value) && value.cancelled === true;
 
-const commands = oneOf('pause', 'resume', 'step', 'reset', 'stop', 'record_start', 'record_stop', 'set_joint');
+const commands = oneOf('pause', 'resume', 'step', 'reset', 'stop', 'record_start', 'record_stop', 'set_joint', 'set_position_control');
 const backend = shape({ supported: boolean }, { commands: array(commands), reason: string, dependency: string });
 export const isSimulationCapability: Validator<SimulationCapability> = (value): value is SimulationCapability =>
     isCapability(value) && shape({ backends: record(backend) })(value);
