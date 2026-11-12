@@ -38,6 +38,8 @@ import xml.etree.ElementTree as ET
 import zipfile
 
 from datum_parameter_studio.urdf_check import check_urdf
+from datum_parameter_studio.fidelity_check import check_fidelity
+from datum_parameter_studio.physics_check import check_physics
 
 _REPORT_SCHEMA = 'datum.runtime-urdf-report/3'
 _MAX_OUTPUTS = 4096
@@ -315,6 +317,8 @@ def bring_up_urdf(project, assembly, *, preflight=None, exporter=None, timeout=1
             'geometry': geometry,
             'source_preflight': before,
             'structural_checks': checks,
+            'cad_urdf_fidelity_checks': check_fidelity(scratch / assembly, urdf),
+            'physics_checks': check_physics(urdf, bundle),
             'assembly_fidelity': before.get('source_fidelity'),
             'freshness': 'current' if fresh else 'stale',
             'physics_readiness': 'unknown',

@@ -20,6 +20,8 @@ import threading
 import zipfile
 
 from datum_parameter_studio.urdf_check import check_urdf
+from datum_parameter_studio.fidelity_check import check_fidelity
+from datum_parameter_studio.physics_check import check_physics
 
 
 def atomic(path, value):
@@ -92,6 +94,8 @@ def run(project, job, preflight, exporter, timeout=120):
                       'exporter':{'version':version.stdout.strip() if version.returncode==0 else None},
                       'outputs_sha256':{p.relative_to(bundle).as_posix():hashlib.sha256(p.read_bytes()).hexdigest() for p in outputs},
                       'source_preflight':source, 'structural_checks':result,
+                      'cad_urdf_fidelity_checks':check_fidelity(scratch / assembly, urdf),
+                      'physics_checks':check_physics(urdf, bundle),
                       'assembly_fidelity':source['source_fidelity'],
                       'freshness':'current' if fresh else 'stale',
                       'physics_readiness':'unknown', 'note':'Saved-file capture; freshness was checked at export completion. Physics and source-to-URDF equivalence are not verified.'}

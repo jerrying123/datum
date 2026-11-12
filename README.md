@@ -112,6 +112,10 @@ directly in the spec. See the [Studio guide](parameter_studio/README.md).
 
 - [Standalone C++ pick-and-place](examples/cpp-pick-place/README.md): generated
   header and runtime evaluation against a kinematic arm.
+- [PyBullet simulation](examples/pybullet_sim/README.md): run a simple arm or
+  export the included SolidCraft assembly at startup.
+- [MuJoCo 4 simulation](examples/mujoco_sim/README.md): load and step the same
+  exported assembly with MuJoCo.
 - [ROS 2 Jazzy C++ pick-and-place](examples/ros2_cpp_pick_place/README.md): an
   `rclcpp` controller and action-based kinematic motor simulator.
 - [Agent package usage](docs/AGENT_USAGE.md) and the
