@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { ThreeMFLoader } from 'three/addons/loaders/3MFLoader.js';
+import { STLLoader } from 'three/addons/loaders/STLLoader.js';
 let files=[],mappings=[],snapshots=new Map(),pendingChange=null,selectedPath=null,inspectionPath=null,selectedOccurrence=null,selectedFeature=null,viewportHighlight=()=>{},viewportRenderer=null,viewportControls=null,resizeObserver=null,viewportState='idle';
 const $=s=>document.querySelector(s);
 let activeTab='parts',navigation=[],storageKey=null,lastPartTap=null,selectedParts=new Set(),expandedParts=new Set();
@@ -175,3 +176,53 @@ $('#urdf-cancel').onclick=async()=>{if(!urdfJob||!urdfCapability)return;try{awai
 $('#urdf-reconnect').onclick=reconnectUrdf;
 setInterval(()=>{const scope=storageKey?`urdf-job-v1:${location.origin}:${storageKey}`:null;if(scope===urdfScope)return;clearTimeout(urdfTimer);urdfScope=scope;urdfJob=null;try{const saved=JSON.parse(localStorage.getItem(scope)||'null');if(scope&&saved&&typeof saved.id==='string')urdfJob=saved;}catch{}reconnectUrdf();},1000);
 reconnectUrdf();
+
+// Simulation viewport uses engine-reported link transforms, never CAD animation.
+(()=>{
+ let capability=null, session=null, timer=null, sceneId=null, scene=null, camera=null, renderer=null, controls=null, objects=new Map(), pollGeneration=0;
+ const el=id=>document.getElementById(`sim-${id}`), terminal=new Set(['stopped','failed','cancelled']);
+ const headers=()=>({'X-Dparams-Capability':capability?.capability||''});
+ async function req(url,options={}){const r=await fetch(url,{cache:'no-store',...options});let data={};try{data=await r.json()}catch{}if(!r.ok){const error=Error(data.error||`HTTP ${r.status}`);error.status=r.status;throw error}return data}
+ function assemblies(){const select=el('assembly'),prev=select.value;select.replaceChildren();for(const f of files){const o=document.createElement('option');o.value=f.path;o.textContent=f.path;select.append(o)}select.value=files.some(f=>f.path===prev)?prev:(selectedPath||select.options[0]?.value||'')}
+ function buttons(status){const s=status?.state, active=['paused','running'].includes(s);el('start').disabled=!capability?.available||!capability.backends?.[el('backend').value.toLowerCase()]?.supported||!!(session&&!terminal.has(s));for(const action of ['pause','resume','step','reset','stop','record'])el(action).disabled=!active;el('pause').disabled=s!=='running';el('resume').disabled=s!=='paused';el('step').disabled=s!=='paused';el('record').textContent=status?.recording?'Stop recording':'Start recording';el('set-joint').disabled=s!=='paused'||!el('joint').options.length||!capability?.backends?.[session?.backend]?.commands?.includes('set_joint')}
+ function closeView(){if(controls)controls.dispose();if(renderer)renderer.dispose();scene=null;renderer=null;objects=new Map();el('view').replaceChildren()}
+ function setupView(){closeView();const host=el('view');renderer=new THREE.WebGLRenderer({antialias:true});renderer.setSize(host.clientWidth||320,300);renderer.setPixelRatio(Math.min(devicePixelRatio||1,2));host.append(renderer.domElement);scene=new THREE.Scene();scene.background=new THREE.Color(0xe1e7e8);camera=new THREE.PerspectiveCamera(40,(host.clientWidth||320)/300,.001,1000);camera.up.set(0,0,1);camera.position.set(.8,-1,.7);scene.add(new THREE.HemisphereLight(0xffffff,0x555566,2));const light=new THREE.DirectionalLight(0xffffff,2);light.position.set(1,-1,2);scene.add(light);controls=new OrbitControls(camera,renderer.domElement);controls.target.set(0,0,.1);controls.update();const own=renderer;const loop=()=>{if(renderer!==own)return;controls.update();own.render(scene,camera);requestAnimationFrame(loop)};loop()}
+ async function loadScene(manifest,id,valid){setupView();const loader=new STLLoader();for(const link of manifest.links||[]){const group=new THREE.Group();group.visible=false;objects.set(link.id,group);scene.add(group);for(const xml of link.geometry||[]){const doc=new DOMParser().parseFromString(xml,'application/xml'),visual=doc.documentElement, geo=visual.querySelector('geometry');if(!geo)continue;const origin=visual.querySelector('origin'),g=new THREE.Group();const vec=(v,d)=>v?v.trim().split(/\s+/).map(Number):d;g.position.fromArray(vec(origin?.getAttribute('xyz'),[0,0,0]));g.rotation.set(...vec(origin?.getAttribute('rpy'),[0,0,0]),'ZYX');let geometry=null;const box=geo.querySelector('box'),sphere=geo.querySelector('sphere'),cylinder=geo.querySelector('cylinder'),mesh=geo.querySelector('mesh');if(box)geometry=new THREE.BoxGeometry(...vec(box.getAttribute('size'),[1,1,1]));else if(sphere)geometry=new THREE.SphereGeometry(Number(sphere.getAttribute('radius')),20,12);else if(cylinder){geometry=new THREE.CylinderGeometry(Number(cylinder.getAttribute('radius')),Number(cylinder.getAttribute('radius')),Number(cylinder.getAttribute('length')),20);geometry.rotateX(Math.PI/2)}else if(mesh){const name=mesh.getAttribute('filename');if(name&&!name.includes('/'))try{geometry=await loader.loadAsync(`/api/simulation/sessions/${encodeURIComponent(id)}/mesh?name=${encodeURIComponent(name)}`);geometry.scale(...vec(mesh.getAttribute('scale'),[1,1,1]))}catch{el('view-status').textContent=`Could not load mesh ${name}.`}}if(!valid())return;if(geometry){g.add(new THREE.Mesh(geometry,new THREE.MeshStandardMaterial({color:0x4484a5,roughness:.7})));group.add(g)}}}}
+ function poses(state){let shown=0;for(const pose of state.links||[]){const obj=objects.get(pose.id);if(!obj||!Array.isArray(pose.position)||!Array.isArray(pose.quaternion))continue;obj.position.fromArray(pose.position);obj.quaternion.fromArray(pose.quaternion);obj.visible=true;shown++}el('view-status').textContent=shown?`Live engine poses: ${shown} links · t=${Number(state.time||0).toFixed(2)} s`:'No matching link poses received; viewport is not live.'}
+ async function poll(){
+  if(!session)return;
+  clearTimeout(timer);const current={...session}, generation=++pollGeneration;
+  const valid=()=>generation===pollGeneration&&session?.id===current.id;
+  try{
+   const status=await req(`/api/simulation/sessions/${current.id}`);if(!valid())return;
+   el('status').textContent=`${status.state||'starting'} · ${current.backend}${status.error?' · '+status.error:''}`;buttons(status);
+   if(['paused','running','stopped'].includes(status.state)){
+    if(sceneId!==current.id){const data=await req(`/api/simulation/sessions/${current.id}/scene`);if(!valid())return;await loadScene(data,current.id,valid);if(!valid())return;sceneId=current.id}
+    const state=await req(`/api/simulation/sessions/${current.id}/state`);if(!valid())return;
+    poses(state);const joint=el('joint'),previous=joint.value,names=(state.joints||[]).map(j=>j.id).filter(Boolean);
+    if([...joint.options].map(x=>x.value).join('\0')!==names.join('\0')){joint.replaceChildren();for(const name of names){const option=document.createElement('option');option.value=name;option.textContent=name;joint.append(option)}if(names.includes(previous))joint.value=previous}
+    el('set-joint').disabled=status.state!=='paused'||!names.length||!capability?.backends?.[current.backend]?.commands?.includes('set_joint');el('telemetry').textContent=`Time: ${Number(state.time||0).toFixed(3)} s · reset ${state.epoch}\nJoints: ${JSON.stringify(state.joints)}`;el('record').dataset.recording=status.recording?'yes':'no';
+   }
+   const recordings=await req(`/api/simulation/sessions/${current.id}/recordings`);if(!valid())return;const list=el('recordings');list.replaceChildren();
+   for(const name of recordings.recordings||[]){const li=document.createElement('li'),link=document.createElement('a');link.href=`/api/simulation/sessions/${current.id}/recordings/${encodeURIComponent(name)}`;link.textContent=`Download ${name}`;link.download=name;li.append(link);list.append(li)}
+   if(!terminal.has(status.state))timer=setTimeout(poll,200);
+  }catch(e){if(!valid())return;if(e.status===404){session=null;sceneId=null;closeView();el('status').textContent='Session no longer exists. Start a new session.';buttons({state:'stopped'});return}el('status').textContent=`Disconnected: ${e.message} · retrying`;el('view-status').textContent='Disconnected; last pose frozen.';timer=setTimeout(poll,2000)}
+ }
+ async function reconnect(){clearTimeout(timer);try{capability=await req('/api/simulation/capabilities');const history=await req('/api/simulation/sessions');const recent=el('recent');recent.replaceChildren();for(const item of (history.sessions||[]).slice(-10).reverse()){const li=document.createElement('li'),button=document.createElement('button');button.type='button';button.textContent=`${item.backend} · ${item.assembly} · ${item.state}`;button.onclick=()=>{clearTimeout(timer);session={id:item.id,backend:item.backend,assembly:item.assembly};sceneId=null;poll()};li.append(button);recent.append(li)}const info=capability.backends?.[el('backend').value.toLowerCase()];el('capabilities').textContent=capability.available?(info?.supported?(info.reason||'Available'):info?.reason||`Install ${info?.dependency||'backend dependencies'}`):'Simulation worker unavailable';buttons(null);if(!session){const active=(history.sessions||[]).find(item=>!terminal.has(item.state));if(active)session={id:active.id,backend:active.backend,assembly:active.assembly}}if(session)await poll()}catch(e){el('capabilities').textContent=e.message}}
+ el('backend').onchange=reconnect;el('reconnect').onclick=reconnect;
+ el('start').onclick=async()=>{try{const backend=el('backend').value.toLowerCase(),assembly=el('assembly').value,r=await req('/api/simulation/sessions',{method:'POST',headers:{...headers(),'Content-Type':'application/json'},body:JSON.stringify({backend,assembly})});session={id:r.id,backend,assembly};sceneId=null;await poll()}catch(e){el('status').textContent=e.message}};
+ async function command(command,extra={}){
+  if(!session)return;const id=session.id;
+  try{
+   const sent=await req(`/api/simulation/sessions/${id}/commands`,{method:'POST',headers:{...headers(),'Content-Type':'application/json'},body:JSON.stringify({command,...extra})});
+   const deadline=Date.now()+10000;let ack=null;
+   while(Date.now()<deadline&&session?.id===id){try{ack=await req(`/api/simulation/sessions/${id}/commands/${sent.id}`);if(ack.status!=='processing')break}catch(e){if(e.status!==404)throw e}await new Promise(resolve=>setTimeout(resolve,100))}
+   if(session?.id!==id)return;
+   if(!ack||ack.status==='processing')throw Error('Command outcome not confirmed; inspect session status before retrying.');
+   if(ack.status!=='applied')throw Error(ack.error||`Command ${ack.status}`);
+   clearTimeout(timer);await poll();
+  }catch(e){if(session?.id===id)el('status').textContent=e.message}
+ }
+ el('set-joint').onclick=()=>{const position=el('position').valueAsNumber;if(Number.isFinite(position))command('set_joint',{joint:el('joint').value,position});else el('status').textContent='Enter a finite joint position.'};for(const action of ['pause','resume','step','reset','stop'])el(action).onclick=()=>command(action);el('record').onclick=()=>command(el('record').dataset.recording==='yes'?'record_stop':'record_start');
+ new MutationObserver(assemblies).observe(document.getElementById('cad-list'),{childList:true,subtree:true});assemblies();reconnect();
+})();

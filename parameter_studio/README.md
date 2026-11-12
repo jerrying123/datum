@@ -40,3 +40,25 @@ Run `python -m unittest examples/pybullet_sim/test_demo.py` to exercise the
 actual PyBullet demo when that optional dependency is installed (otherwise the
 test is skipped). The included native CAD demo and its prerequisites are described
 in the [simulation example](../examples/pybullet_sim/README.md).
+
+## Simulation sessions
+
+Open **Simulation** in Studio, select an assembly and an available engine, and
+start a session. The embedded simulation viewport uses engine-reported link
+poses; the separate CAD preview remains an inspection view. Pause, single-step,
+resume, reset and stop are available in the panel. For MuJoCo and PyBullet, pause and set a named joint position in radians or metres; this teleports the joint and clears its velocity. Recording writes local JSONL
+samples and command events under `.dparams-studio/sim-jobs/<session>/recordings/`;
+use the download links in the panel. Recordings include the captured export
+report and source hashes. They are telemetry, not physics checkpoints or ROS bags.
+Sessions persist while the host worker runs; closing a browser tab does not stop
+them. Studio shutdown stops its worker and active session.
+
+The host Python environment running `dparam-std` must have the desired optional
+engine installed (`pip install 'mujoco>=4,<5'` or `pip install pybullet`), as
+well as `solidcraft-cli` and the preflight tool used by URDF export. Gazebo is
+experimental: its local `gz sim` executable and compatible Python transport
+bindings are required. A headless Gazebo Harmonic run was tested with the included
+two-link assembly. Direct joint positioning is not yet supported for Gazebo. Availability appears inline; dependencies are not downloaded by
+the application. Simulations use captured saved inputs and do not update if the
+CAD changes. Reset restores the captured model; start a new session to load edits.
+Physics fidelity and suitability are not established by visualization.

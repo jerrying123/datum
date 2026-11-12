@@ -16,4 +16,4 @@ dparam-std = "datum_parameter_studio.cli:main"
 datum_parameter_studio = ["compose.yaml", "Dockerfile", "package.json", "package-lock.json", "server.js", "render_watcher.py", "public/*"]
 
 [tool.setuptools]
-packages = ["datum_parameter_studio"]
+packages = ["datum_parameter_studio", "datum_parameter_studio.simulations"]

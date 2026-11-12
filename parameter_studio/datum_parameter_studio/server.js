@@ -148,5 +148,142 @@ app.get('/api/urdf/jobs/:id/:artifact',async(req,res)=>{
   try { const dir=await jobDirectory(req.params.id), status=await readJobStatus(dir); if(status.state!=='succeeded') return res.status(409).json({error:'Job output is not complete.'}); const name=req.params.artifact==='report'?'report.json':'bundle.zip'; h=await openJobFile(dir,name); res.set('Cache-Control','no-store').type(name.endsWith('.zip')?'application/zip':'application/json'); res.set('Content-Disposition',`attachment; filename="${name}"`); const stream=h.createReadStream(); h=null; stream.on('error',()=>res.destroy()); stream.pipe(res); } catch(e) { if(h) await h.close(); jobError(res,e); }
 });
 
+// Simulation spool contract: requests and commands are published by atomic rename.
+const simSpool=process.env.DATUM_SIM_SPOOL;
+let simLock=Promise.resolve();
+async function simRoot() {
+  if(!simSpool) throw Object.assign(new Error('Simulation unavailable.'),{status:503});
+  const st=await fs.lstat(simSpool);
+  if(!st.isDirectory()||st.isSymbolicLink()) throw new Error('Invalid simulation spool');
+  return simSpool;
+}
+async function simReady() {
+  try { const root=await simRoot(), h=await openJobFile(root,'worker.ready'); try { return Date.now()-(await h.stat()).mtimeMs<10000; } finally { await h.close(); } } catch { return false; }
+}
+async function simDirectory(id) {
+  if(!jobIdPattern.test(id)) throw Object.assign(new Error('Invalid session ID.'),{status:400});
+  const dir=path.join(await simRoot(),id), st=await fs.lstat(dir);
+  if(!st.isDirectory()||st.isSymbolicLink()) throw Object.assign(new Error('Session unavailable.'),{status:404});
+  return dir;
+}
+async function publish(dir,name,value) {
+  const tmp=path.join(dir,name+'.tmp');
+  await fs.writeFile(tmp,JSON.stringify(value),{flag:'wx',mode:0o600});
+  await fs.rename(tmp,path.join(dir,name));
+}
+app.use('/api/simulation',(req,res,next)=>{
+  res.set('Cache-Control','no-store');
+  if(!['GET','POST'].includes(req.method)) return res.sendStatus(405);
+  if(req.method==='POST'&&!authorized(req)) return res.status(403).json({error:'Invalid origin or capability.'});
+  next();
+});
+app.get('/api/simulation/capabilities',async(req,res)=>{
+  const available=await simReady(); let backends={};
+  if(available) try { backends=(await readJobJson(await simRoot(),'worker.ready')).capabilities||{}; } catch {}
+  res.json({available,backends,capability:urdfCapability});
+});
+app.post('/api/simulation/sessions',async(req,res)=>{
+  const body=req.body;
+  if(!body||Array.isArray(body)||Object.keys(body).sort().join(',')!=='assembly,backend'||typeof body.backend!=='string'||! /^[a-z][a-z0-9_-]{0,31}$/.test(body.backend)||typeof body.assembly!=='string'||! /\.(solidcraft|sc)$/i.test(body.assembly)) return res.status(400).json({error:'Provide backend and assembly.'});
+  try { await validateSource(body.assembly,await fs.realpath(projectRoot)); } catch { return res.status(400).json({error:'Invalid assembly path.'}); }
+  const previous=simLock; let release; simLock=new Promise(r=>{release=r;}); await previous;
+  try {
+    if(!await simReady()) return res.status(503).json({error:'Simulation worker unavailable.'});
+    const root=await simRoot(); let count=0;
+    for(const ent of await fs.readdir(root,{withFileTypes:true})) {
+      if(!jobIdPattern.test(ent.name)) continue;
+      count++;
+      let status; try { status=await readJobJson(await simDirectory(ent.name),'status.json'); } catch { return res.status(409).json({error:'Existing session has unknown status.'}); }
+      if(!['stopped','succeeded','failed','cancelled','completed'].includes(status.state)) return res.status(409).json({error:'A simulation session is already active.'});
+    }
+    if(count>=100) return res.status(429).json({error:'Session storage quota reached.'});
+    const id=randomBytes(16).toString('hex'),dir=path.join(root,id), staging=path.join(root,`.${id}.new`);
+    try {
+      await fs.mkdir(staging,{mode:0o700});
+      await fs.mkdir(path.join(staging,'commands'),{mode:0o700});
+      await fs.mkdir(path.join(staging,'acks'),{mode:0o700});
+      await publish(staging,'status.json',{state:'queued'});
+      await publish(staging,'request.json',{backend:body.backend,assembly:body.assembly});
+      await fs.rename(staging,dir);
+    } catch(e) { await fs.rm(staging,{recursive:true,force:true}); throw e; }
+    res.status(202).json({id});
+  } catch(e) { jobError(res,e); } finally { release(); }
+});
+app.get('/api/simulation/sessions',async(req,res)=>{
+  try {
+    const root=await simRoot(), sessions=[];
+    for(const ent of await fs.readdir(root,{withFileTypes:true})) {
+      if(!ent.isDirectory()||!jobIdPattern.test(ent.name)) continue;
+      try { const dir=await simDirectory(ent.name), [request,status]=await Promise.all([readJobJson(dir,'request.json'),readJobJson(dir,'status.json')]); sessions.push({id:ent.name,backend:request.backend,assembly:request.assembly,...status}); } catch {}
+    }
+    res.json({sessions});
+  } catch(e) { jobError(res,e); }
+});
+app.get('/api/simulation/sessions/:id',async(req,res)=>{
+  try { res.json(await readJobJson(await simDirectory(req.params.id),'status.json')); } catch(e) { jobError(res,e); }
+});
+app.get('/api/simulation/sessions/:id/mesh',async(req,res)=>{
+  let h;
+  try {
+    const name=req.query.name;
+    if(typeof name!=='string'||!name||name.includes('/')||name.includes('\\')||name==='.'||name==='..'||!name.toLowerCase().endsWith('.stl')) return res.sendStatus(400);
+    const dir=await simDirectory(req.params.id), bundle=path.join(dir,'bundle');
+    const stat=await fs.lstat(bundle);
+    if(!stat.isDirectory()||stat.isSymbolicLink()) return res.sendStatus(404);
+    h=await openJobFile(bundle,name);
+    if((await h.stat()).size>64*1024*1024) {await h.close();h=null;return res.sendStatus(413);}
+    res.type('application/octet-stream'); const stream=h.createReadStream();h=null;stream.on('error',()=>res.destroy());stream.pipe(res);
+  } catch(e) { if(h) await h.close(); jobError(res,e); }
+});
+app.get('/api/simulation/sessions/:id/recordings',async(req,res)=>{
+  try {
+    const dir=path.join(await simDirectory(req.params.id),'recordings');
+    const st=await fs.lstat(dir);if(!st.isDirectory()||st.isSymbolicLink()) return res.sendStatus(404);
+    const entries=await fs.readdir(dir,{withFileTypes:true});
+    res.json({recordings:entries.filter(e=>e.isFile()&&!e.isSymbolicLink()&&/^[0-9a-f]{32}\.jsonl$/.test(e.name)).map(e=>e.name)});
+  } catch(e) { if(e.code==='ENOENT') return res.json({recordings:[]});jobError(res,e); }
+});
+app.get('/api/simulation/sessions/:id/recordings/:name',async(req,res)=>{
+  if(!/^[0-9a-f]{32}\.jsonl$/.test(req.params.name)) return res.sendStatus(400);
+  let h;
+  try {
+    const dir=path.join(await simDirectory(req.params.id),'recordings'),st=await fs.lstat(dir);
+    if(!st.isDirectory()||st.isSymbolicLink()) return res.sendStatus(404);
+    h=await openJobFile(dir,req.params.name);res.type('application/x-ndjson');
+    res.set('Content-Disposition',`attachment; filename="${req.params.name}"`);
+    const stream=h.createReadStream();h=null;stream.on('error',()=>res.destroy());stream.pipe(res);
+  } catch(e) { if(h) await h.close();jobError(res,e); }
+});
+app.get('/api/simulation/sessions/:id/:artifact',async(req,res)=>{
+  if(!['scene','state','recordings'].includes(req.params.artifact)) return res.sendStatus(404);
+  try { res.json(await readJobJson(await simDirectory(req.params.id),req.params.artifact+'.json')); } catch(e) { jobError(res,e); }
+});
+app.post('/api/simulation/sessions/:id/commands',async(req,res)=>{
+  const body=req.body;
+  const commands=['pause','resume','step','reset','stop','record_start','record_stop','set_joint'];
+  if(!body||Array.isArray(body)||!commands.includes(body.command)) return res.status(400).json({error:'Invalid command.'});
+  if(body.command==='set_joint') {
+    if(Object.keys(body).sort().join(',')!=='command,joint,position'||typeof body.joint!=='string'||!body.joint||body.joint.length>256||typeof body.position!=='number'||!Number.isFinite(body.position)) return res.status(400).json({error:'Provide a joint and finite position.'});
+  } else if(Object.keys(body).join(',')!=='command') return res.status(400).json({error:'Invalid command arguments.'});
+  const previous=simLock; let release; simLock=new Promise(r=>{release=r;}); await previous;
+  try {
+    if(!await simReady()) return res.status(503).json({error:'Simulation worker unavailable.'});
+    const sessionDir=await simDirectory(req.params.id),status=await readJobJson(sessionDir,'status.json');
+    if(!['paused','running'].includes(status.state)) return res.status(409).json({error:'Session is not accepting commands.'});
+    const dir=path.join(sessionDir,'commands'),st=await fs.lstat(dir);
+    if(!st.isDirectory()||st.isSymbolicLink()) throw new Error('Invalid commands directory');
+    if((await fs.readdir(dir)).length>=1000) return res.status(429).json({error:'Command quota reached.'});
+    const id=randomBytes(16).toString('hex'); await publish(dir,id+'.json',{id,...body}); res.status(202).json({id});
+  } catch(e) { jobError(res,e); } finally { release(); }
+});
+app.get('/api/simulation/sessions/:id/commands/:commandId',async(req,res)=>{
+  if(!jobIdPattern.test(req.params.commandId)) return res.sendStatus(400);
+  try {
+    const dir=await simDirectory(req.params.id), acks=path.join(dir,'acks'),st=await fs.lstat(acks);
+    if(!st.isDirectory()||st.isSymbolicLink()) return res.sendStatus(404);
+    res.json(await readJobJson(acks,req.params.commandId+'.json'));
+  } catch(e) { jobError(res,e); }
+});
+
 app.get('/healthz',(_,res)=>res.json({ok:true}));
 app.listen(Number(process.env.DATUM_STUDIO_PORT||8080),'0.0.0.0',()=>console.log('Datum Parameter Studio listening'));
