@@ -63,6 +63,39 @@ class WorkerTests(unittest.TestCase):
             with patch.object(session, 'start', start): session.run()
             self.assertEqual(json.loads((Path(tmp) / 'status.json').read_text())['state'], 'failed')
 
+    @unittest.skipUnless(importlib.util.find_spec('mujoco'), 'MuJoCo optional')
+    def test_force_limited_mujoco(self):
+        self.check_force_limited_position_control('mujoco')
+
+    @unittest.skipUnless(importlib.util.find_spec('pybullet'), 'PyBullet optional')
+    def test_force_limited_pybullet(self):
+        self.check_force_limited_position_control('pybullet')
+
+    def check_force_limited_position_control(self, backend):
+        for backend in (backend,):
+            with self.subTest(backend=backend), tempfile.TemporaryDirectory() as tmp:
+                path = Path(tmp) / 'robot.urdf'; path.write_text(URDF)
+                engine = Engine(backend, path)
+                try:
+                    for profile in ({'kp': 1, 'kd': 0, 'max_force': 0},
+                                    {'kp': float('nan'), 'kd': 0, 'max_force': 1},
+                                    {'kp': True, 'kd': 0, 'max_force': 1}):
+                        with self.assertRaises(ValueError):
+                            engine.set_position_control('slide', 1, profile)
+                    engine.set_joint('slide', 0.5)
+                    self.assertAlmostEqual(engine.snapshot()['joints'][0]['position'], 0.5)
+                    engine.set_joint('slide', 0)
+                    engine.set_position_control('slide', 1, {'kp': 1000, 'kd': 0, 'max_force': 1})
+                    engine.step()
+                    # Gravity exceeds the capped upward force, despite the large gain.
+                    self.assertLess(engine.snapshot()['joints'][0]['velocity'], 0)
+                    engine.reset()
+                    self.assertFalse(engine.actuators)
+                    for _ in range(10): engine.step()
+                    self.assertLess(engine.snapshot()['joints'][0]['velocity'], 0)
+                finally:
+                    engine.close()
+
     def test_engines(self):
         for backend in ('mujoco', 'pybullet'):
             if importlib.util.find_spec(backend) is None:
@@ -80,7 +113,7 @@ class WorkerTests(unittest.TestCase):
                 with patch('datum_parameter_studio.simulations.worker.simulation_input', return_value=source) as load:
                     try:
                         worker.start()
-                        load.assert_called_once_with(root, 'synthetic')
+                        load.assert_called_once_with(root, 'synthetic', supports_couplings=True)
                         self.assertEqual(worker.state, 'paused')
                         worker.tick()
                         self.assertEqual(worker.engine.snapshot()['time'], 0)
@@ -94,6 +127,34 @@ class WorkerTests(unittest.TestCase):
                         self.assertTrue(json.loads((directory / 'state.json').read_text())['links'])
                     finally: worker.close()
                 self.assertTrue(source.closed)
+
+    @unittest.skipUnless(importlib.util.find_spec('pybullet'), 'PyBullet optional')
+    def test_spooled_position_control_and_reset(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            urdf = root / 'robot.urdf'; urdf.write_text(URDF)
+            (root / 'commands').mkdir(); (root / 'acks').mkdir()
+            session = Session(root, root)
+            session.engine = Engine('pybullet', urdf)
+            session.state = 'paused'
+            session.backend = 'pybullet'
+            def send(identifier, command, **fields):
+                atomic(root / 'commands' / (identifier + '.json'),
+                       {'id': identifier, 'command': command, **fields})
+                session.tick()
+                return json.loads((root / 'acks' / (identifier + '.json')).read_text())
+            try:
+                profile = {'kp': 1000, 'kd': 0, 'max_force': 1}
+                self.assertEqual(send('a', 'set_position_control', joint='slide', position=1, profile=profile)['status'], 'applied')
+                self.assertEqual(next(iter(session.engine.actuators.values())), (1, 1000, 0, 1))
+                self.assertEqual(send('b', 'set_position_control', joint='slide', position=1, profile={**profile, 'max_force': 0})['status'], 'rejected')
+                self.assertEqual(send('c', 'step')['status'], 'applied')
+                self.assertLess(session.engine.snapshot()['joints'][0]['velocity'], 0)
+                self.assertEqual(send('d', 'reset')['status'], 'applied')
+                self.assertFalse(session.engine.actuators)
+                self.assertEqual(session.epoch, 1)
+            finally:
+                session.engine.close()
 
     def test_unavailable(self):
         with tempfile.TemporaryDirectory() as tmp:

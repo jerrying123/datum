@@ -73,12 +73,37 @@ class IntegrationTest(unittest.TestCase):
                     self.assertEqual(ack['status'], 'applied', ack)
                     positioned = until(lambda:req(uri+'/state'),lambda x:any(j.get('id')=='hinge' and abs(j['position']-0.4)<1e-5 for j in x.get('joints',[])))
                     self.assertTrue(positioned['joints'])
+                    drive = {'command':'set_position_control', 'joint':'hinge', 'position':0.2,
+                             'profile':{'kp':12, 'kd':2, 'max_force':5}}
+                    with self.assertRaises(HTTPError) as invalid:
+                        req(uri+'/commands', {**drive, 'profile':{**drive['profile'], 'max_force':0}}, token)
+                    self.assertEqual(invalid.exception.code, 400)
+                    invalid.exception.close()
+                    command = req(uri+'/commands', drive, token)
+                    ack = until(lambda:req(uri+'/commands/'+command['id']), lambda x:x.get('status') in ('applied','rejected','unknown'))
+                    self.assertEqual(ack['status'], 'applied', ack)
                     req(uri+'/commands',{'command':'step'},token)
                     stepped=until(lambda:req(uri),lambda x:x.get('time',0)>0 or x.get('error'))
                     self.assertFalse(stepped.get('error'), stepped)
                     self.assertGreater(stepped['time'],0)
-                    req(uri+'/commands',{'command':'reset'},token)
+                    timeline=stepped['timeline']
+                    self.assertGreater(timeline['max'], timeline['min'])
+                    speed=req(uri+'/commands', {'command':'set_speed','speed':1.37}, token)
+                    until(lambda:req(uri+'/commands/'+speed['id']),lambda x:x.get('status')=='applied')
+                    until(lambda:req(uri),lambda x:x.get('speed')==1.37)
+                    with self.assertRaises(HTTPError) as invalid_speed:
+                        req(uri+'/commands', {'command':'set_speed','speed':99}, token)
+                    self.assertEqual(invalid_speed.exception.code,400); invalid_speed.exception.close()
+                    seek=req(uri+'/commands', {'command':'seek','frame':timeline['min'],'generation':timeline['generation']}, token)
+                    ack=until(lambda:req(uri+'/commands/'+seek['id']),lambda x:x.get('status') in ('applied','rejected','unknown'))
+                    self.assertEqual(ack['status'],'applied',ack)
                     until(lambda:req(uri+'/state'),lambda x:x.get('epoch')==1)
+                    forward=req(uri+'/commands', {'command':'seek','frame':timeline['max'],'generation':timeline['generation']}, token)
+                    ack=until(lambda:req(uri+'/commands/'+forward['id']),lambda x:x.get('status') in ('applied','rejected','unknown'))
+                    self.assertEqual(ack['status'],'applied',ack)
+                    until(lambda:req(uri+'/state'),lambda x:x.get('epoch')==2)
+                    req(uri+'/commands',{'command':'reset'},token)
+                    until(lambda:req(uri+'/state'),lambda x:x.get('epoch')==3)
                     req(uri+'/commands',{'command':'record_stop'},token)
                     until(lambda:req(uri),lambda x:not x.get('recording',True))
                     recordings = req(uri+'/recordings')['recordings']

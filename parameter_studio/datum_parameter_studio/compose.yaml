@@ -9,8 +9,11 @@ services:
       DATUM_STUDIO_PORT: 8080
       DATUM_PROJECT_ROOT: /workspace
       DATUM_SIM_SPOOL: /sim-jobs
+      DATUM_WORKER_HEALTH_HOST: host.docker.internal
       DATUM_URDF_SPOOL: /urdf-jobs
       DATUM_PROJECT_ID: ${DATUM_PROJECT_ID:-${DATUM_PROJECT_DIR:-.}}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - "${DATUM_PROJECT_DIR:-.}:/workspace:ro"
       - "${DATUM_PREVIEW_DIR:-/tmp/dparams-previews}:/previews:ro"

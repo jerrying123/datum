@@ -16,9 +16,9 @@ import signal
 import subprocess
 import tempfile
 import time
-import threading
 import zipfile
 
+from datum_parameter_studio.worker_health import WorkerHealth
 from datum_parameter_studio.urdf_check import check_urdf
 from datum_parameter_studio.fidelity_check import check_fidelity
 from datum_parameter_studio.physics_check import check_physics
@@ -134,17 +134,9 @@ def serve(project, spool, preflight, exporter, timeout=120):
                         if state in ('capturing', 'exporting', 'checking'): (job / 'cancel').touch()
         signal.signal(signal.SIGTERM, stop)
         signal.signal(signal.SIGINT, stop)
-        marker = spool / 'worker.ready'
-        marker.write_text(str(os.getpid()))
-        heartbeat_stop = threading.Event()
-        def heartbeat():
-            while not heartbeat_stop.wait(2):
-                marker.touch()
-        heartbeat_thread = threading.Thread(target=heartbeat, daemon=True)
-        heartbeat_thread.start()
+        health = WorkerHealth(spool, lambda: {'available': not stopping})
         first = True
         while not stopping:
-            marker.touch()
             for job in sorted(spool.iterdir()):
                 if stopping: break
                 if not re.fullmatch('[0-9a-f]{32}', job.name) or job.is_symlink() or not job.is_dir(): continue
@@ -159,9 +151,7 @@ def serve(project, spool, preflight, exporter, timeout=120):
                     except Exception as exc: atomic(status, {'state':'failed', 'error':str(exc)})
             first = False
             time.sleep(.2)
-        heartbeat_stop.set()
-        heartbeat_thread.join()
-        marker.unlink(missing_ok=True)
+        health.close()
 
 
 def main():

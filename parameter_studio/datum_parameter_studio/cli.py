@@ -10,7 +10,7 @@ from pathlib import Path
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Run the local DParams Studio with Docker Compose.")
+    parser = argparse.ArgumentParser(description="Run the local Datum Studio with Docker Compose.")
     parser.add_argument("action", nargs="?", choices=["up", "down", "logs"], default="up")
     parser.add_argument("--port", default=os.environ.get("DATUM_STUDIO_PORT", "8000"))
     parser.add_argument("--project", type=Path, default=Path.cwd(), help="CAD project folder to watch (default: current directory)")
@@ -70,7 +70,6 @@ def main():
     try:
         if args.action == "up":
             if not owned_sim_worker():
-                (sim_spool / 'worker.ready').unlink(missing_ok=True)
                 with open(sim_spool / 'worker.log', 'ab', buffering=0) as log:
                     sim_env = os.environ.copy()
                     if source_repo:
@@ -94,7 +93,7 @@ def main():
                 log = open(preview_dir / "watcher.log", "ab", buffering=0)
                 child = subprocess.Popen([sys.executable, "-m", "datum_parameter_studio.render_watcher", str(project), str(preview_dir), executable], start_new_session=True, stdout=log, stderr=log)
                 pid_file.write_text(str(child.pid))
-            command.append("--build")
+            command.extend(["--build", "--detach"])
             if args.tailscale:
                 tailscale = shutil.which("tailscale")
                 if not tailscale:
@@ -102,7 +101,7 @@ def main():
                 status = json.loads(subprocess.check_output([tailscale, "status", "--json"], text=True))
                 hostname = status["Self"]["DNSName"].rstrip(".")
                 subprocess.run([tailscale, "serve", "--bg", "--https=8443", f"http://127.0.0.1:{args.port}"], check=True)
-                print(f"DParams Studio: https://{hostname}:8443 (available when Compose finishes starting)", flush=True)
+                print(f"Datum Studio: https://{hostname}:8443 (available when Compose finishes starting)", flush=True)
         subprocess.run(command, env=env, check=True)
     except BaseException:
         if sim_worker is not None and sim_worker.poll() is None:
@@ -115,16 +114,27 @@ def main():
             sim_pid.unlink(missing_ok=True)
         raise
     if args.action == "up" and not args.tailscale:
-        print(f"DParams Studio: http://localhost:{args.port}")
+        print(f"Datum Studio: http://localhost:{args.port}")
     elif args.action == "down":
         sim_owned = owned_sim_worker()
         if sim_owned:
             try: os.kill(sim_owned, signal.SIGTERM)
             except ProcessLookupError: pass
+            deadline = time.monotonic() + 5
+            while owned_sim_worker() and time.monotonic() < deadline:
+                time.sleep(.05)
+            if owned_sim_worker():
+                raise RuntimeError('Simulation worker did not stop')
         sim_pid.unlink(missing_ok=True)
-        (sim_spool / 'worker.ready').unlink(missing_ok=True)
         pid = owned_worker()
-        if pid: os.kill(pid, signal.SIGTERM)
+        if pid:
+            try: os.kill(pid, signal.SIGTERM)
+            except ProcessLookupError: pass
+            deadline = time.monotonic() + 5
+            while owned_worker() and time.monotonic() < deadline:
+                time.sleep(.05)
+            if owned_worker():
+                raise RuntimeError('URDF worker did not stop')
         worker_pid.unlink(missing_ok=True)
         pid_file = preview_dir / "watcher.pid"
         if pid_file.exists():

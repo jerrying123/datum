@@ -75,16 +75,13 @@ app.post('/api/generate',async(req,res)=>{
 app.get('/api/preview/:id',async(req,res)=>{if(!/^[a-f0-9]{64}$/.test(req.params.id)||!/^[a-f0-9]{64}$/.test(req.query.v||''))return res.sendStatus(400);const root=path.join('/previews',req.params.id),file=root+'.png';try{if((await fs.readFile(root+'.rev','utf8'))!==req.query.v)return res.sendStatus(409);res.set('Cache-Control','no-store').sendFile(file);}catch{res.sendStatus(404);}});
 app.get('/api/model/:id',async(req,res)=>{if(!/^[a-f0-9]{64}$/.test(req.params.id)||!/^[a-f0-9]{64}$/.test(req.query.v||''))return res.sendStatus(400);const root=path.join('/previews',req.params.id),file=root+'.3mf';try{if((await fs.readFile(root+'.rev','utf8'))!==req.query.v)return res.sendStatus(409);res.set('Content-Type','model/3mf').set('Cache-Control','no-store').sendFile(file);}catch{res.sendStatus(404);}});
 
-// The host launcher owns worker.ready and the worker lifecycle.
+// The host launcher owns worker lifecycles; readiness is checked through their health APIs.
 const urdfSpool=process.env.DATUM_URDF_SPOOL;
 const urdfCapability=randomBytes(32).toString('hex');
 const jobIdPattern=/^[0-9a-f]{32}$/;
 const activeStates=new Set(['queued','capturing','exporting','checking']);
 let queueLock=Promise.resolve();
-async function spoolReady() {
-  if(!urdfSpool) return false;
-  try { const root=await fs.lstat(urdfSpool), marker=await fs.lstat(path.join(urdfSpool,'worker.ready')); return root.isDirectory()&&!root.isSymbolicLink()&&marker.isFile()&&!marker.isSymbolicLink()&&(Date.now()-marker.mtimeMs<10000); } catch { return false; }
-}
+async function spoolReady() { return (await workerHealth(urdfSpool)) !== null; }
 function authorized(req) {
   const token=req.get('X-Dparams-Capability')||'';
   const a=Buffer.from(token), b=Buffer.from(urdfCapability);
@@ -105,7 +102,8 @@ async function readJobJson(dir,name) {
   const h=await openJobFile(dir,name);
   try { const st=await h.stat(); if(st.size>2*1024*1024) throw new Error('File too large'); return JSON.parse(await h.readFile('utf8')); } finally { await h.close(); }
 }
-async function readJobStatus(dir) { const versions=(await fs.readdir(dir)).filter(name=>/^status-[0-9]{20}\.json$/.test(name)).sort(); return readJobJson(dir,versions.at(-1)||'status.json'); }
+async function readLatestSnapshot(dir, name) { const versions=(await fs.readdir(dir)).filter(file=>new RegExp(`^${name}-[0-9]{20}\\.json$`).test(file)).sort(); return readJobJson(dir,versions.at(-1)||name+'.json'); }
+async function readJobStatus(dir) { return readLatestSnapshot(dir, 'status'); }
 function jobError(res,e) { res.status(e.status|| (e.code==='ENOENT'?404:500)).json({error:e.status||e.code==='ENOENT'?e.message:'Job unavailable.'}); }
 app.get('/api/urdf/capabilities',async(req,res)=>{res.set('Cache-Control','no-store').json({available:await spoolReady(),capability:urdfCapability});});
 app.post('/api/urdf/jobs',async(req,res)=>{
@@ -157,9 +155,24 @@ async function simRoot() {
   if(!st.isDirectory()||st.isSymbolicLink()) throw new Error('Invalid simulation spool');
   return simSpool;
 }
-async function simReady() {
-  try { const root=await simRoot(), h=await openJobFile(root,'worker.ready'); try { return Date.now()-(await h.stat()).mtimeMs<10000; } finally { await h.close(); } } catch { return false; }
+async function workerHealth(spool) {
+  try {
+    if(!spool) return null;
+    const st=await fs.lstat(spool);
+    if(!st.isDirectory()||st.isSymbolicLink()) return null;
+    const names=(await fs.readdir(spool)).filter(n=>/^worker-endpoint-[0-9]{20}\.json$/.test(n)).sort();
+    if(!names.length) return null;
+    const endpoint=await readJobJson(spool,names.at(-1));
+    if(!Number.isInteger(endpoint.port)||endpoint.port<1||endpoint.port>65535||typeof endpoint.token!=='string'||!/^[0-9a-f]{64}$/.test(endpoint.token)) return null;
+    const host=process.env.DATUM_WORKER_HEALTH_HOST||'127.0.0.1';
+    const response=await fetch(`http://${host}:${endpoint.port}/health`,{headers:{Authorization:`Bearer ${endpoint.token}`},signal:AbortSignal.timeout(1000)});
+    if(!response.ok) return null;
+    const data=await response.json();
+    return data.available===true ? data : null;
+  } catch { return null; }
 }
+async function simHealth() { try { return (await workerHealth(await simRoot()))?.capabilities || null; } catch { return null; } }
+async function simReady() { return (await simHealth()) !== null; }
 async function simDirectory(id) {
   if(!jobIdPattern.test(id)) throw Object.assign(new Error('Invalid session ID.'),{status:400});
   const dir=path.join(await simRoot(),id), st=await fs.lstat(dir);
@@ -178,9 +191,8 @@ app.use('/api/simulation',(req,res,next)=>{
   next();
 });
 app.get('/api/simulation/capabilities',async(req,res)=>{
-  const available=await simReady(); let backends={};
-  if(available) try { backends=(await readJobJson(await simRoot(),'worker.ready')).capabilities||{}; } catch {}
-  res.json({available,backends,capability:urdfCapability});
+  const backends=await simHealth();
+  res.json({available:backends!==null,backends:backends||{},capability:urdfCapability});
 });
 app.post('/api/simulation/sessions',async(req,res)=>{
   const body=req.body;
@@ -193,7 +205,7 @@ app.post('/api/simulation/sessions',async(req,res)=>{
     for(const ent of await fs.readdir(root,{withFileTypes:true})) {
       if(!jobIdPattern.test(ent.name)) continue;
       count++;
-      let status; try { status=await readJobJson(await simDirectory(ent.name),'status.json'); } catch { return res.status(409).json({error:'Existing session has unknown status.'}); }
+      let status; try { status=await readJobStatus(await simDirectory(ent.name)); } catch { return res.status(409).json({error:'Existing session has unknown status.'}); }
       if(!['stopped','succeeded','failed','cancelled','completed'].includes(status.state)) return res.status(409).json({error:'A simulation session is already active.'});
     }
     if(count>=100) return res.status(429).json({error:'Session storage quota reached.'});
@@ -214,13 +226,13 @@ app.get('/api/simulation/sessions',async(req,res)=>{
     const root=await simRoot(), sessions=[];
     for(const ent of await fs.readdir(root,{withFileTypes:true})) {
       if(!ent.isDirectory()||!jobIdPattern.test(ent.name)) continue;
-      try { const dir=await simDirectory(ent.name), [request,status]=await Promise.all([readJobJson(dir,'request.json'),readJobJson(dir,'status.json')]); sessions.push({id:ent.name,backend:request.backend,assembly:request.assembly,...status}); } catch {}
+      try { const dir=await simDirectory(ent.name), [request,status]=await Promise.all([readJobJson(dir,'request.json'),readJobStatus(dir)]); sessions.push({id:ent.name,backend:request.backend,assembly:request.assembly,...status}); } catch {}
     }
     res.json({sessions});
   } catch(e) { jobError(res,e); }
 });
 app.get('/api/simulation/sessions/:id',async(req,res)=>{
-  try { res.json(await readJobJson(await simDirectory(req.params.id),'status.json')); } catch(e) { jobError(res,e); }
+  try { res.json(await readJobStatus(await simDirectory(req.params.id))); } catch(e) { jobError(res,e); }
 });
 app.get('/api/simulation/sessions/:id/mesh',async(req,res)=>{
   let h;
@@ -256,19 +268,26 @@ app.get('/api/simulation/sessions/:id/recordings/:name',async(req,res)=>{
 });
 app.get('/api/simulation/sessions/:id/:artifact',async(req,res)=>{
   if(!['scene','state','recordings'].includes(req.params.artifact)) return res.sendStatus(404);
-  try { res.json(await readJobJson(await simDirectory(req.params.id),req.params.artifact+'.json')); } catch(e) { jobError(res,e); }
+  try { res.json(await (req.params.artifact==='state' ? readLatestSnapshot(await simDirectory(req.params.id),'state') : readJobJson(await simDirectory(req.params.id),req.params.artifact+'.json'))); } catch(e) { jobError(res,e); }
 });
 app.post('/api/simulation/sessions/:id/commands',async(req,res)=>{
   const body=req.body;
-  const commands=['pause','resume','step','reset','stop','record_start','record_stop','set_joint'];
+  const commands=['pause','resume','step','reset','stop','record_start','record_stop','set_joint','set_position_control','set_speed','seek'];
   if(!body||Array.isArray(body)||!commands.includes(body.command)) return res.status(400).json({error:'Invalid command.'});
-  if(body.command==='set_joint') {
+  if(body.command==='set_speed') {
+    if(Object.keys(body).sort().join(',')!=='command,speed'||(typeof body.speed !== 'number' || !Number.isFinite(body.speed) || body.speed < 0.25 || body.speed > 4)) return res.status(400).json({error:'Invalid playback speed.'});
+  } else if(body.command==='seek') {
+    if(Object.keys(body).sort().join(',')!=='command,frame,generation'||!Number.isSafeInteger(body.frame)||body.frame<0||!Number.isSafeInteger(body.generation)||body.generation<0) return res.status(400).json({error:'Invalid timeline position.'});
+  } else if(body.command==='set_joint') {
     if(Object.keys(body).sort().join(',')!=='command,joint,position'||typeof body.joint!=='string'||!body.joint||body.joint.length>256||typeof body.position!=='number'||!Number.isFinite(body.position)) return res.status(400).json({error:'Provide a joint and finite position.'});
+  } else if(body.command==='set_position_control') {
+    const profile=body.profile;
+    if(Object.keys(body).sort().join(',')!=='command,joint,position,profile'||typeof body.joint!=='string'||!body.joint||body.joint.length>256||typeof body.position!=='number'||!Number.isFinite(body.position)||!profile||typeof profile!=='object'||Array.isArray(profile)||Object.keys(profile).sort().join(',')!=='kd,kp,max_force'||!['kp','kd','max_force'].every(k=>typeof profile[k]==='number'&&Number.isFinite(profile[k])&&profile[k]>=0)||profile.max_force===0) return res.status(400).json({error:'Provide a joint, finite target, and valid actuator profile.'});
   } else if(Object.keys(body).join(',')!=='command') return res.status(400).json({error:'Invalid command arguments.'});
   const previous=simLock; let release; simLock=new Promise(r=>{release=r;}); await previous;
   try {
     if(!await simReady()) return res.status(503).json({error:'Simulation worker unavailable.'});
-    const sessionDir=await simDirectory(req.params.id),status=await readJobJson(sessionDir,'status.json');
+    const sessionDir=await simDirectory(req.params.id),status=await readJobStatus(sessionDir);
     if(!['paused','running'].includes(status.state)) return res.status(409).json({error:'Session is not accepting commands.'});
     const dir=path.join(sessionDir,'commands'),st=await fs.lstat(dir);
     if(!st.isDirectory()||st.isSymbolicLink()) throw new Error('Invalid commands directory');
@@ -281,9 +300,10 @@ app.get('/api/simulation/sessions/:id/commands/:commandId',async(req,res)=>{
   try {
     const dir=await simDirectory(req.params.id), acks=path.join(dir,'acks'),st=await fs.lstat(acks);
     if(!st.isDirectory()||st.isSymbolicLink()) return res.sendStatus(404);
-    res.json(await readJobJson(acks,req.params.commandId+'.json'));
+    let outcome; try { outcome=await readJobJson(acks,req.params.commandId+'.done.json'); } catch(e) { if(e.code!=='ENOENT') throw e; outcome=await readJobJson(acks,req.params.commandId+'.json'); }
+    res.json(outcome);
   } catch(e) { jobError(res,e); }
 });
 
 app.get('/healthz',(_,res)=>res.json({ok:true}));
-app.listen(Number(process.env.DATUM_STUDIO_PORT||8080),'0.0.0.0',()=>console.log('Datum Parameter Studio listening'));
+app.listen(Number(process.env.DATUM_STUDIO_PORT||8080),'0.0.0.0',()=>console.log('Datum Studio listening'));
