@@ -70,7 +70,6 @@ def main():
     try:
         if args.action == "up":
             if not owned_sim_worker():
-                (sim_spool / 'worker.ready').unlink(missing_ok=True)
                 with open(sim_spool / 'worker.log', 'ab', buffering=0) as log:
                     sim_env = os.environ.copy()
                     if source_repo:
@@ -121,10 +120,21 @@ def main():
         if sim_owned:
             try: os.kill(sim_owned, signal.SIGTERM)
             except ProcessLookupError: pass
+            deadline = time.monotonic() + 5
+            while owned_sim_worker() and time.monotonic() < deadline:
+                time.sleep(.05)
+            if owned_sim_worker():
+                raise RuntimeError('Simulation worker did not stop')
         sim_pid.unlink(missing_ok=True)
-        (sim_spool / 'worker.ready').unlink(missing_ok=True)
         pid = owned_worker()
-        if pid: os.kill(pid, signal.SIGTERM)
+        if pid:
+            try: os.kill(pid, signal.SIGTERM)
+            except ProcessLookupError: pass
+            deadline = time.monotonic() + 5
+            while owned_worker() and time.monotonic() < deadline:
+                time.sleep(.05)
+            if owned_worker():
+                raise RuntimeError('URDF worker did not stop')
         worker_pid.unlink(missing_ok=True)
         pid_file = preview_dir / "watcher.pid"
         if pid_file.exists():

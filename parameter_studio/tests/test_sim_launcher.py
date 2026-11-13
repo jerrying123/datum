@@ -2,6 +2,9 @@ import os
 from pathlib import Path
 import subprocess
 import tempfile
+import time
+import json
+import sys
 import unittest
 from unittest.mock import Mock, patch
 
@@ -26,6 +29,26 @@ class LauncherTest(unittest.TestCase):
             process.terminate.assert_called_once()
             process.wait.assert_called_once()
             self.assertFalse((root/'.dparams-studio/sim-jobs/worker.pid').exists())
+
+    def test_down_waits_for_owned_worker_before_removing_identity(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); spool = root / '.dparams-studio' / 'sim-jobs'
+            spool.mkdir(parents=True)
+            worker = subprocess.Popen([sys.executable, '-m', 'datum_parameter_studio.simulations.worker', '--serve', '--project', str(root), '--spool', str(spool)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            try:
+                (spool / 'worker.pid').write_text(json.dumps({'pid': worker.pid, 'start': Path(f'/proc/{worker.pid}/stat').read_text().split()[21]}))
+                deadline = time.monotonic() + 5
+                while not list(spool.glob('worker-endpoint-*.json')) and time.monotonic() < deadline:
+                    time.sleep(.05)
+                self.assertTrue(list(spool.glob('worker-endpoint-*.json')))
+                with patch('sys.argv', ['dparam-std', 'down', '--project', str(root)]), \
+                     patch('datum_parameter_studio.cli.shutil.which', return_value='/usr/bin/docker'), \
+                     patch('datum_parameter_studio.cli.subprocess.run'):
+                    cli.main()
+                worker.wait(timeout=1)
+                self.assertFalse((spool / 'worker.pid').exists())
+            finally:
+                if worker.poll() is None: worker.kill(); worker.wait(timeout=5)
 
     def test_up_detaches_compose_and_keeps_supervisor_running(self):
         with tempfile.TemporaryDirectory() as tmp:

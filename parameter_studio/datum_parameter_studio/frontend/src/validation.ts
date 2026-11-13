@@ -73,22 +73,22 @@ export const isUrdfJob: Validator<UrdfJob> = (value): value is UrdfJob =>
 export const isUrdfCancellation = (value: unknown): value is { cancelled: true } =>
     isRecord(value) && value.cancelled === true;
 
-const commands = oneOf('pause', 'resume', 'step', 'reset', 'stop', 'record_start', 'record_stop', 'set_joint', 'set_position_control');
+const commands = oneOf('pause', 'resume', 'step', 'reset', 'stop', 'record_start', 'record_stop', 'set_joint', 'set_position_control', 'set_speed', 'seek');
 const backend = shape({ supported: boolean }, { commands: array(commands), reason: string, dependency: string });
 export const isSimulationCapability: Validator<SimulationCapability> = (value): value is SimulationCapability =>
     isCapability(value) && shape({ backends: record(backend) })(value);
 const simulationStatus = shape({ state: oneOf('queued', 'starting', 'paused', 'running', 'stopped', 'failed', 'cancelled', 'succeeded', 'completed') }, {
-    recording: boolean, error: nullable(string),
+    recording: boolean, error: nullable(string), speed: number, actual_speed: number, timeline: nullable(shape({ min: number, max: number, current: number, generation: number })),
 });
 export const isSimulationStatus: Validator<SimulationStatus> = (value): value is SimulationStatus => simulationStatus(value);
 export const isSimulationHistory: Validator<SimulationHistory> = (value): value is SimulationHistory =>
     shape({ sessions: array(item => simulationStatus(item) && shape({ id: nonemptyString, backend: string, assembly: string })(item)) })(value);
 export const isSimulationScene: Validator<SimulationScene> = (value): value is SimulationScene =>
-    shape({ links: array(shape({ id: string }, { geometry: strings })) })(value);
+    shape({ links: array(shape({ id: string }, { geometry: strings })) }, { couplings: array(shape({ driver: string, driven: string, ratio: number, offset: number })) })(value);
 const tuple = (length: number): Check => value => Array.isArray(value) && value.length === length && value.every(item => number(item));
 export const isSimulationState: Validator<SimulationState> = (value): value is SimulationState =>
     shape({ epoch: number }, {
-        time: number,
+        time: number, seq: number,
         links: array(shape({ id: string, position: tuple(3), quaternion: tuple(4) })),
         // MuJoCo returns null for unnamed joints; the selector skips those.
         joints: array(shape({ id: nullable(string) }, { position: number, velocity: number })),

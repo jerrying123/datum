@@ -75,12 +75,12 @@ export function $(selector: keyof typeof studioControls): HTMLElement {
 }
 
 const simulationControls = {
-    start: HTMLButtonElement, pause: HTMLButtonElement, resume: HTMLButtonElement,
+    start: HTMLButtonElement, pause: HTMLButtonElement, resume: HTMLButtonElement, rewind: HTMLButtonElement, forward: HTMLButtonElement, timeline: HTMLInputElement, 'playback-speed': HTMLInputElement, 'playback-value': HTMLInputElement, 'playback-rate': HTMLParagraphElement, 'frame-rate': HTMLInputElement, 'frame-rate-info': HTMLParagraphElement, 'timeline-info': HTMLSpanElement,
     step: HTMLButtonElement, reset: HTMLButtonElement, stop: HTMLButtonElement,
     record: HTMLButtonElement, reconnect: HTMLButtonElement, 'set-joint': HTMLButtonElement, 'drive-joint': HTMLButtonElement, kp: HTMLInputElement, kd: HTMLInputElement, 'max-force': HTMLInputElement,
     assembly: HTMLSelectElement, backend: HTMLSelectElement, joint: HTMLSelectElement,
     position: HTMLInputElement, capabilities: HTMLParagraphElement, status: HTMLParagraphElement,
-    view: HTMLDivElement, 'view-status': HTMLParagraphElement, telemetry: HTMLPreElement,
+    view: HTMLDivElement, 'view-status': HTMLParagraphElement, 'viewport-state': HTMLElement, 'joint-readout': HTMLParagraphElement, 'control-feedback': HTMLParagraphElement, telemetry: HTMLPreElement,
     recordings: HTMLOListElement, recent: HTMLOListElement,
 };
 

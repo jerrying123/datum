@@ -113,7 +113,7 @@ class WorkerTests(unittest.TestCase):
                 with patch('datum_parameter_studio.simulations.worker.simulation_input', return_value=source) as load:
                     try:
                         worker.start()
-                        load.assert_called_once_with(root, 'synthetic')
+                        load.assert_called_once_with(root, 'synthetic', supports_couplings=True)
                         self.assertEqual(worker.state, 'paused')
                         worker.tick()
                         self.assertEqual(worker.engine.snapshot()['time'], 0)

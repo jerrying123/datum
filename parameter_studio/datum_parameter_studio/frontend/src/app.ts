@@ -23,6 +23,7 @@ let resizeObserver: ResizeObserver | null = null;
 let viewportState: 'idle' | 'loading' | 'ready' | 'failed' = 'idle';
 type WorkspaceTab = 'parts' | 'features' | 'mappings' | 'export' | 'simulation';
 let activeTab: WorkspaceTab = 'parts';
+let lastParameterTab: Exclude<WorkspaceTab, 'simulation'> = 'parts';
 let navigation: string[] = [];
 let storageKey: string | null = null;
 let lastPartTap: {
@@ -36,7 +37,9 @@ const selectedParts = new Set<string>();
 const expandedParts = new Set<string>();
 function showTab(tab: WorkspaceTab) {
     activeTab = tab;
+    if (tab !== 'simulation') lastParameterTab = tab;
     document.body.dataset.tab = tab;
+    document.querySelectorAll<HTMLButtonElement>('[data-pane-focus]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.paneFocus === (tab === 'simulation' ? 'simulation' : 'cad'))));
     document.querySelectorAll<HTMLElement>('button[data-tab]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.tab === tab)));
     document.querySelectorAll<HTMLElement>('[data-workflow]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.workflow === (tab === 'simulation' ? 'simulation' : 'parameters'))));
     updateFlow();
@@ -485,7 +488,7 @@ function setupOrientation(camera: THREE.PerspectiveCamera, controls: OrbitContro
 }
 function drawPreview(file: CadFile) {
     viewportState = 'loading';
-    $('#preview-label').textContent = `${file.path} · drag to orbit · tap to inspect · double-tap to open part`;
+    $('#preview-label').textContent = file.path;
     const host = $('#preview');
     requiredElement(document, '#view-orientation', HTMLDivElement).hidden = true;
     if (resizeObserver)
@@ -1243,17 +1246,30 @@ reconnectUrdf();
     let capability: SimulationCapability | null = null;
     let session: SimulationSession | null = null;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let targetFps = 30, lastRecordingRefresh = 0, lastFrameSequence: number | undefined;
+    let sampleStart = performance.now(), sampledFrames = 0;
     let sceneId: string | null = null;
+    let couplings: NonNullable<SimulationScene['couplings']> = [];
     interface SimulationView {
         scene: THREE.Scene;
         camera: THREE.PerspectiveCamera;
         renderer: THREE.WebGLRenderer;
         controls: OrbitControls;
         objects: Map<string, THREE.Group>;
+        observer: ResizeObserver;
+        framed: boolean;
     }
     let view: SimulationView | null = null;
     let pollGeneration = 0;
+    let capabilityGeneration = 0;
     let lastStatus: SimulationStatus | null = null;
+    let latestJoints: NonNullable<SimulationState['joints']> = [];
+    let controlledTarget: { joint: string; position: number } | null = null;
+    let restoredController = false;
+    let drivePending = false;
+    let timelineDragging = false;
+    let seekPending = false;
+    let playbackError: string | null = null;
     const el = simulationElement, terminal = new Set(['stopped', 'failed', 'cancelled']);
     const headers = () => ({ 'X-Dparams-Capability': capability?.capability || '' });
     async function req<T>(url: string, guard: Guard<T>, options: RequestInit = {}): Promise<T> {
@@ -1282,10 +1298,81 @@ reconnectUrdf();
         el('resume').disabled = s !== 'paused';
         el('step').disabled = s !== 'paused';
         el('record').textContent = status?.recording ? 'Stop recording' : 'Start recording';
-        el('drive-joint').disabled = !['paused', 'running'].includes(s || '') || !el('joint').options.length || !capability?.backends?.[session?.backend || '']?.commands?.includes('set_position_control');
+        const backend = capability?.backends?.[session?.backend || ''];
+        const timeline = status?.timeline;
+        const canSeek = !seekPending && s === 'paused' && !!timeline && !!backend?.commands?.includes('seek');
+        el('rewind').disabled = !canSeek || !timeline || timeline.current <= timeline.min;
+        el('forward').disabled = !canSeek || !timeline || timeline.current >= timeline.max;
+        el('timeline').disabled = !canSeek || !timeline || timeline.max <= timeline.min;
+        el('playback-speed').disabled = !active || !backend?.commands?.includes('set_speed');
+        el('playback-value').disabled = el('playback-speed').disabled;
+        if (status?.speed && document.activeElement !== el('playback-speed') && document.activeElement !== el('playback-value')) {
+            el('playback-speed').value = String(status.speed);
+            el('playback-value').value = String(status.speed);
+        }
+        el('playback-rate').textContent = playbackError || (s === 'running' && typeof status?.actual_speed === 'number'
+            ? `Actual: ${status.actual_speed.toFixed(2)}× real time` : 'Actual speed appears while running.');
+        if (timeline) {
+            el('timeline').min = String(timeline.min);
+            el('timeline').max = String(timeline.max);
+            if (!timelineDragging) el('timeline').value = String(timeline.current);
+            el('timeline-info').textContent = `${timeline.current - timeline.min} / ${timeline.max - timeline.min} saved steps`;
+        } else {
+            el('timeline-info').textContent = active ? 'Rewind is not available for this engine.' : 'Start a session to record history.';
+        }
+        el('drive-joint').disabled = drivePending || !['paused', 'running'].includes(s || '') || !el('joint').options.length || couplings.some(c => c.driven === el('joint').value) || !capability?.backends?.[session?.backend || '']?.commands?.includes('set_position_control');
         el('set-joint').disabled = s !== 'paused' || !el('joint').options.length || !capability?.backends?.[session?.backend || '']?.commands?.includes('set_joint');
     }
+    function setViewMode(mode: 'cad' | 'simulation' | 'split') {
+        document.body.dataset.view = mode;
+        document.querySelectorAll<HTMLButtonElement>('[data-view-mode]').forEach(button => {
+            button.setAttribute('aria-pressed', String(button.dataset.viewMode === mode));
+        });
+        if (mode === 'cad') showTab(lastParameterTab);
+        else if (mode === 'simulation' || mode === 'split') showTab('simulation');
+    }
+    document.querySelectorAll<HTMLButtonElement>('[data-view-mode]').forEach(button => {
+        button.onclick = () => {
+            const mode = button.dataset.viewMode;
+            if (mode === 'cad' || mode === 'simulation' || mode === 'split') setViewMode(mode);
+        };
+    });
+    document.querySelectorAll<HTMLButtonElement>('[data-pane-focus]').forEach(button => {
+        button.onclick = () => showTab(button.dataset.paneFocus === 'cad' ? lastParameterTab : 'simulation');
+    });
+    requiredElement(document, '#preview', HTMLDivElement).addEventListener('pointerdown', () => {
+        if (document.body.dataset.view === 'split') showTab(lastParameterTab);
+    });
+    el('view').addEventListener('pointerdown', () => {
+        if (document.body.dataset.view === 'split') showTab('simulation');
+    });
+    setViewMode('cad');
+    function updateJointReadout() {
+        const joint = latestJoints.find(item => item.id === el('joint').value);
+        el('joint-readout').textContent = joint && typeof joint.position === 'number' && typeof joint.velocity === 'number'
+            ? `Measured position ${joint.position.toFixed(4)} · velocity ${joint.velocity.toFixed(4)} (rad or m)`
+            : 'Joint telemetry will appear here when available.';
+    }
+    function showControlState() {
+        if (!controlledTarget) {
+            if (restoredController) {
+                el('control-feedback').textContent = lastStatus?.state === 'paused'
+                    ? 'Checkpoint restored, including its controller settings. Press Resume or Step to advance.'
+                    : 'Checkpoint restored, including its controller settings.';
+                return;
+            }
+            el('control-feedback').textContent = lastStatus?.state === 'paused'
+                ? 'Simulation is paused. Press Resume to run, or Step to advance once.'
+                : 'Set a target and apply position control to configure the controller.';
+            return;
+        }
+        const target = `${controlledTarget.joint} → ${controlledTarget.position}`;
+        el('control-feedback').textContent = lastStatus?.state === 'paused'
+            ? `Controller configured (${target}). Simulation is paused; press Resume or Step to move.`
+            : `Position control active (${target}). Watch the measured position above.`;
+    }
     function closeView() {
+        view?.observer.disconnect();
         view?.controls.dispose();
         view?.renderer.dispose();
         view = null;
@@ -1295,12 +1382,13 @@ reconnectUrdf();
         closeView();
         const host = el('view');
         const renderer = new THREE.WebGLRenderer({ antialias: true });
-        renderer.setSize(host.clientWidth || 320, 300);
+        const width = host.clientWidth || 320, height = host.clientHeight || 300;
+        renderer.setSize(width, height);
         renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
         host.append(renderer.domElement);
         const scene = new THREE.Scene();
         scene.background = new THREE.Color(0xe1e7e8);
-        const camera = new THREE.PerspectiveCamera(40, (host.clientWidth || 320) / 300, .001, 1000);
+        const camera = new THREE.PerspectiveCamera(40, width / height, .001, 1000);
         camera.up.set(0, 0, 1);
         camera.position.set(.8, -1, .7);
         scene.add(new THREE.AxesHelper(.2));
@@ -1311,13 +1399,32 @@ reconnectUrdf();
         const controls = new OrbitControls(camera, renderer.domElement);
         controls.target.set(0, 0, .1);
         controls.update();
-        const own: SimulationView = { renderer, scene, camera, controls, objects: new Map() };
+        const observer = new ResizeObserver(() => {
+            if (!host.clientWidth || !host.clientHeight) return;
+            renderer.setSize(host.clientWidth, host.clientHeight);
+            const oldAspect = camera.aspect;
+            camera.aspect = host.clientWidth / host.clientHeight;
+            if (view?.framed && camera.aspect < oldAspect) {
+                const fov = THREE.MathUtils.degToRad(camera.fov / 2);
+                const oldAngle = Math.atan(Math.tan(fov) * Math.min(1, oldAspect));
+                const newAngle = Math.atan(Math.tan(fov) * Math.min(1, camera.aspect));
+                camera.position.sub(controls.target).multiplyScalar(Math.sin(oldAngle) / Math.sin(newAngle)).add(controls.target);
+                controls.update();
+            }
+            camera.updateProjectionMatrix();
+        });
+        observer.observe(host);
+        const own: SimulationView = { renderer, scene, camera, controls, observer, objects: new Map(), framed: false };
         view = own;
-        const loop = () => {
+        let lastRender = 0;
+        const loop = (now = 0) => {
             if (view !== own)
                 return;
-            controls.update();
-            renderer.render(scene, camera);
+            if (now - lastRender >= 1000 / targetFps - 1) {
+                lastRender = now;
+                controls.update();
+                renderer.render(scene, camera);
+            }
             requestAnimationFrame(loop);
         };
         loop();
@@ -1380,11 +1487,32 @@ reconnectUrdf();
             obj.visible = true;
             shown++;
         }
+        if (view && shown && !view.framed) {
+            view.scene.updateMatrixWorld(true);
+            const bounds = new THREE.Box3();
+            for (const obj of view.objects.values()) {
+                if (obj.visible) bounds.expandByObject(obj);
+            }
+            if (!bounds.isEmpty()) {
+                const sphere = bounds.getBoundingSphere(new THREE.Sphere());
+                if (Number.isFinite(sphere.radius) && sphere.radius > 0) {
+                    const halfFov = THREE.MathUtils.degToRad(view.camera.fov / 2);
+                    const angle = Math.atan(Math.tan(halfFov) * Math.min(1, view.camera.aspect));
+                    const direction = view.camera.position.clone().sub(view.controls.target).normalize();
+                    view.controls.target.copy(sphere.center);
+                    view.camera.position.copy(sphere.center).addScaledVector(direction, sphere.radius * 1.3 / Math.sin(angle));
+                    view.controls.update();
+                    view.framed = true;
+                }
+            }
+        }
+        el('viewport-state').textContent = lastStatus?.state === 'stopped' ? 'Stopped · last state' : shown ? `${lastStatus?.state === 'running' ? 'Running' : 'Paused'} · t=${Number(state.time || 0).toFixed(2)} s` : 'Waiting for engine poses';
         el('view-status').textContent = shown ? `Live engine poses: ${shown} links · t=${Number(state.time || 0).toFixed(2)} s` : 'No matching link poses received; viewport is not live.';
     }
     async function poll() {
         if (!session)
             return;
+        const started = performance.now();
         clearTimeout(timer);
         const current = { ...session }, generation = ++pollGeneration;
         const valid = () => generation === pollGeneration && session?.id === current.id;
@@ -1393,12 +1521,19 @@ reconnectUrdf();
             if (!valid())
                 return;
             el('status').textContent = `${status.state || 'starting'} · ${current.backend}${status.error ? ' · ' + status.error : ''}`;
+            if (status.state === 'failed') el('viewport-state').textContent = 'Simulation failed';
+            else if (status.state === 'stopped') el('viewport-state').textContent = 'Stopped · last state';
+            if ((status.state === 'failed' || status.state === 'stopped') && controlledTarget) {
+                controlledTarget = null;
+                el('control-feedback').textContent = 'Simulation stopped; position control is no longer active.';
+            }
             buttons(status);
             if (['paused', 'running', 'stopped'].includes(status.state)) {
                 if (sceneId !== current.id) {
                     const data = await req(`/api/simulation/sessions/${current.id}/scene`, contract.scene);
                     if (!valid())
                         return;
+                    couplings = data.couplings || [];
                     await loadScene(data, current.id, valid);
                     if (!valid())
                         return;
@@ -1408,23 +1543,37 @@ reconnectUrdf();
                 if (!valid())
                     return;
                 poses(state);
+                if (status.state === 'running' && state.seq !== undefined && state.seq !== lastFrameSequence) {
+                    sampledFrames++;
+                    lastFrameSequence = state.seq;
+                }
+                if (performance.now() - sampleStart >= 1000) {
+                    const fps = sampledFrames * 1000 / (performance.now() - sampleStart);
+                    el('frame-rate-info').textContent = status.state === 'running' ? `Received ${fps.toFixed(1)} fps of ${targetFps} fps target. Actual rate depends on simulation and browser performance.` : `Target ${targetFps} fps; actual updates appear while running.`;
+                    sampledFrames = 0;
+                    sampleStart = performance.now();
+                }
+                latestJoints = state.joints || [];
                 const joint = el('joint'), previous = joint.value, names = (state.joints || []).map(j => j.id).filter((id): id is string => typeof id === 'string' && !!id);
                 if ([...joint.options].map(x => x.value).join('\0') !== names.join('\0')) {
                     joint.replaceChildren();
                     for (const name of names) {
                         const option = document.createElement('option');
                         option.value = name;
-                        option.textContent = name;
+                        const link = couplings.find(c => c.driven === name);
+                        option.textContent = link ? `${name} (follows ${link.driver})` : name;
                         joint.append(option);
                     }
                     if (names.includes(previous))
                         joint.value = previous;
                 }
-                el('drive-joint').disabled = !['paused', 'running'].includes(status.state) || !names.length || !capability?.backends?.[current.backend]?.commands?.includes('set_position_control');
+                updateJointReadout();
+                el('drive-joint').disabled = drivePending || !['paused', 'running'].includes(status.state) || !names.length || couplings.some(c => c.driven === joint.value) || !capability?.backends?.[current.backend]?.commands?.includes('set_position_control');
                 el('set-joint').disabled = status.state !== 'paused' || !names.length || !capability?.backends?.[current.backend]?.commands?.includes('set_joint');
                 el('telemetry').textContent = `Time: ${Number(state.time || 0).toFixed(3)} s · reset ${state.epoch}\nJoints: ${JSON.stringify(state.joints)}`;
                 el('record').dataset.recording = status.recording ? 'yes' : 'no';
             }
+            if (performance.now() - lastRecordingRefresh > 2000 || terminal.has(status.state)) {
             const recordings = await req(`/api/simulation/sessions/${current.id}/recordings`, contract.recordings);
             if (!valid())
                 return;
@@ -1438,8 +1587,10 @@ reconnectUrdf();
                 li.append(link);
                 list.append(li);
             }
+            lastRecordingRefresh = performance.now();
+            }
             if (!terminal.has(status.state))
-                timer = setTimeout(poll, 200);
+                timer = setTimeout(poll, Math.max(0, 1000 / targetFps - (performance.now() - started)));
         }
         catch (e) {
             if (!valid())
@@ -1454,13 +1605,30 @@ reconnectUrdf();
             }
             el('status').textContent = `Disconnected: ${errorMessage(e)} · retrying`;
             el('view-status').textContent = 'Disconnected; last pose frozen.';
+            el('viewport-state').textContent = 'Disconnected · last state';
+            if (controlledTarget) el('control-feedback').textContent = 'Connection interrupted; the current controller state is unknown.';
             timer = setTimeout(poll, 2000);
         }
+    }
+    async function refreshCapability() {
+        const generation = ++capabilityGeneration;
+        try {
+            const result = await req('/api/simulation/capabilities', contract.simCapability);
+            if (generation !== capabilityGeneration) return;
+            capability = result;
+            const info = result.backends?.[el('backend').value.toLowerCase()];
+            el('capabilities').textContent = result.available ? (info?.supported ? (info.reason || 'Available') : info?.reason || `Install ${info?.dependency || 'backend dependencies'}`) : 'Simulation worker unavailable';
+        } catch (e) {
+            if (generation !== capabilityGeneration) return;
+            capability = null;
+            el('capabilities').textContent = errorMessage(e);
+        }
+        buttons(lastStatus);
     }
     async function reconnect() {
         clearTimeout(timer);
         try {
-            capability = await req('/api/simulation/capabilities', contract.simCapability);
+            await refreshCapability();
             const history = await req('/api/simulation/sessions', contract.history);
             const recent = el('recent');
             recent.replaceChildren();
@@ -1472,14 +1640,17 @@ reconnectUrdf();
                     clearTimeout(timer);
                     session = { id: item.id, backend: item.backend, assembly: item.assembly };
                     sceneId = null;
+                    controlledTarget = null;
+                    restoredController = false;
+                    latestJoints = [];
+                    updateJointReadout();
+                    showControlState();
+                    setViewMode('simulation');
                     poll();
                 };
                 li.append(button);
                 recent.append(li);
             }
-            const info = capability.backends?.[el('backend').value.toLowerCase()];
-            el('capabilities').textContent = capability.available ? (info?.supported ? (info.reason || 'Available') : info?.reason || `Install ${info?.dependency || 'backend dependencies'}`) : 'Simulation worker unavailable';
-            buttons(null);
             if (!session) {
                 const active = (history.sessions || []).find(item => !terminal.has(item.state));
                 if (active)
@@ -1492,9 +1663,19 @@ reconnectUrdf();
             el('capabilities').textContent = errorMessage(e);
         }
     }
+    setInterval(() => { void refreshCapability(); }, 5000);
+    el('joint').onchange = () => { buttons(lastStatus); updateJointReadout(); };
     el('backend').onchange = reconnect;
     el('reconnect').onclick = reconnect;
     el('start').onclick = async () => {
+        setViewMode('simulation');
+        el('view-status').textContent = 'Preparing simulation…';
+        el('viewport-state').textContent = 'Preparing engine…';
+        controlledTarget = null;
+        restoredController = false;
+        latestJoints = [];
+        updateJointReadout();
+        showControlState();
         try {
             const backend = el('backend').value.toLowerCase(), assembly = el('assembly').value, r = await req('/api/simulation/sessions', contract.receipt, { method: 'POST', headers: { ...headers(), 'Content-Type': 'application/json' }, body: JSON.stringify({ backend, assembly }) });
             session = { id: r.id, backend, assembly };
@@ -1503,11 +1684,13 @@ reconnectUrdf();
         }
         catch (e) {
             el('status').textContent = errorMessage(e);
+            el('view-status').textContent = 'Simulation could not start. See the session status.';
+            el('viewport-state').textContent = 'Could not start';
         }
     };
-    async function command(request: SimulationCommandRequest) {
+    async function command(request: SimulationCommandRequest): Promise<boolean> {
         if (!session)
-            return;
+            return false;
         const id = session.id;
         try {
             const sent = await req(`/api/simulation/sessions/${id}/commands`, contract.receipt, { method: 'POST', headers: { ...headers(), 'Content-Type': 'application/json' }, body: JSON.stringify(request) });
@@ -1526,33 +1709,111 @@ reconnectUrdf();
                 await new Promise(resolve => setTimeout(resolve, 100));
             }
             if (session?.id !== id)
-                return;
+                return false;
             if (!ack || ack.status === 'processing')
                 throw Error('Command outcome not confirmed; inspect session status before retrying.');
             if (ack.status !== 'applied')
                 throw Error(ack.error || `Command ${ack.status}`);
             clearTimeout(timer);
             await poll();
+            return true;
         }
         catch (e) {
-            if (session?.id === id)
+            if (session?.id === id) {
                 el('status').textContent = errorMessage(e);
+                if (request.command === 'seek' || request.command === 'set_speed') {
+                    playbackError = `Playback command failed: ${errorMessage(e)}`;
+                    el('playback-rate').textContent = playbackError;
+                }
+                else el('control-feedback').textContent = `Command failed: ${errorMessage(e)}`;
+            }
+            return false;
         }
     }
-    el('drive-joint').onclick = () => {
+    el('drive-joint').onclick = async () => {
         const position = el('position').valueAsNumber, kp = el('kp').valueAsNumber, kd = el('kd').valueAsNumber, max_force = el('max-force').valueAsNumber;
-        if ([position, kp, kd, max_force].every(Number.isFinite) && kp >= 0 && kd >= 0 && max_force > 0) command({ command: 'set_position_control', joint: el('joint').value, position, profile: { kp, kd, max_force } });
-        else el('status').textContent = 'Enter a finite target, non-negative gains, and a positive force limit.';
+        if (![position, kp, kd, max_force].every(Number.isFinite) || kp < 0 || kd < 0 || max_force <= 0) {
+            el('control-feedback').textContent = 'Enter a finite target, non-negative gains, and a positive force limit.';
+            return;
+        }
+        const joint = el('joint').value;
+        drivePending = true;
+        buttons(lastStatus);
+        el('control-feedback').textContent = `Sending controller target for ${joint}…`;
+        try {
+            if (await command({ command: 'set_position_control', joint, position, profile: { kp, kd, max_force } })) {
+                controlledTarget = { joint, position };
+                restoredController = false;
+                showControlState();
+            }
+        } finally {
+            drivePending = false;
+            buttons(lastStatus);
+        }
     };
-    el('set-joint').onclick = () => {
+    el('set-joint').onclick = async () => {
         const position = el('position').valueAsNumber;
-        if (Number.isFinite(position))
-            command({ command: 'set_joint', joint: el('joint').value, position });
-        else
-            el('status').textContent = 'Enter a finite joint position.';
+        if (!Number.isFinite(position)) {
+            el('control-feedback').textContent = 'Enter a finite joint position.';
+            return;
+        }
+        const joint = el('joint').value;
+        el('control-feedback').textContent = `Setting ${joint} pose…`;
+        if (await command({ command: 'set_joint', joint, position }))
+            el('control-feedback').textContent = `Set ${joint} pose to ${position}.${controlledTarget || restoredController ? ' A position controller may still be active.' : ''}`;
     };
     for (const action of ['pause', 'resume', 'step', 'reset', 'stop'] as const)
-        el(action).onclick = () => command({ command: action });
+        el(action).onclick = async () => {
+            if (await command({ command: action })) {
+                if (action === 'reset' || action === 'stop') { controlledTarget = null; restoredController = false; }
+                showControlState();
+            }
+        };
+    el('playback-speed').oninput = () => { el('playback-value').value = el('playback-speed').value; };
+    el('playback-speed').onchange = () => { playbackError = null; void command({ command: 'set_speed', speed: el('playback-speed').valueAsNumber }); };
+    el('playback-value').onchange = () => {
+        const speed = el('playback-value').valueAsNumber;
+        if (!Number.isFinite(speed) || speed < .25 || speed > 4) {
+            playbackError = 'Enter a playback speed between 0.25× and 4×.';
+            el('playback-rate').textContent = playbackError;
+            return;
+        }
+        playbackError = null;
+        el('playback-speed').value = String(speed);
+        void command({ command: 'set_speed', speed });
+    };
+    el('frame-rate').onchange = () => {
+        const fps = el('frame-rate').valueAsNumber;
+        if (!Number.isInteger(fps) || fps < 1 || fps > 60) {
+            el('frame-rate-info').textContent = 'Enter a whole number between 1 and 60 fps.';
+            return;
+        }
+        targetFps = fps;
+        el('frame-rate-info').textContent = `Target ${fps} fps; actual updates depend on simulation and browser performance.`;
+        if (session) { clearTimeout(timer); void poll(); }
+    };
+    async function seekFrame(frame: number) {
+        const timeline = lastStatus?.timeline;
+        if (!timeline || seekPending) return;
+        playbackError = null;
+        seekPending = true;
+        buttons(lastStatus);
+        try {
+            if (await command({ command: 'seek', frame, generation: timeline.generation })) {
+                controlledTarget = null;
+                restoredController = true;
+                showControlState();
+            }
+        } finally {
+            seekPending = false;
+            buttons(lastStatus);
+        }
+    }
+    el('rewind').onclick = () => { if (lastStatus?.timeline) void seekFrame(lastStatus.timeline.current - 1); };
+    el('forward').onclick = () => { if (lastStatus?.timeline) void seekFrame(lastStatus.timeline.current + 1); };
+    el('timeline').oninput = () => { timelineDragging = true; };
+    el('timeline').onchange = () => { timelineDragging = false; void seekFrame(Number(el('timeline').value)); };
+    el('timeline').onpointercancel = () => { timelineDragging = false; buttons(lastStatus); };
     el('record').onclick = () => command({ command: el('record').dataset.recording === 'yes' ? 'record_stop' : 'record_start' });
     new MutationObserver(assemblies).observe($('#cad-list'), { childList: true, subtree: true });
     assemblies();

@@ -147,6 +147,9 @@ export interface SimulationCapability extends Capability {
 
 export type SimulationSessionState = 'queued' | 'starting' | 'paused' | 'running' | 'stopped' | 'failed' | 'cancelled' | 'succeeded' | 'completed';
 export interface SimulationStatus {
+    speed?: number;
+    actual_speed?: number;
+    timeline?: { min: number; max: number; current: number; generation: number } | null;
     state: SimulationSessionState;
     recording?: boolean;
     error?: string | null;
@@ -163,11 +166,13 @@ export interface SimulationHistory {
 }
 
 export interface SimulationScene {
+    couplings?: { driver: string; driven: string; ratio: number; offset: number }[];
     links?: { id: string; geometry?: string[] }[];
 }
 
 export type Vector3Tuple = [number, number, number];
 export interface SimulationState {
+    seq?: number;
     time?: number;
     epoch: number;
     links?: { id: string; position: Vector3Tuple; quaternion: [number, number, number, number] }[];
@@ -178,8 +183,10 @@ export interface SimulationRecordings {
     recordings?: string[];
 }
 
-export type SimulationCommand = 'pause' | 'resume' | 'step' | 'reset' | 'stop' | 'record_start' | 'record_stop' | 'set_joint' | 'set_position_control';
-export type SimulationCommandRequest = { command: Exclude<SimulationCommand, 'set_joint' | 'set_position_control'> }
+export type SimulationCommand = 'pause' | 'resume' | 'step' | 'reset' | 'stop' | 'record_start' | 'record_stop' | 'set_joint' | 'set_position_control' | 'set_speed' | 'seek';
+export type SimulationCommandRequest = { command: Exclude<SimulationCommand, 'set_joint' | 'set_position_control' | 'set_speed' | 'seek'> }
+    | { command: 'set_speed'; speed: number }
+    | { command: 'seek'; frame: number; generation: number }
     | { command: 'set_joint'; joint: string; position: number }
     | { command: 'set_position_control'; joint: string; position: number; profile: { kp: number; kd: number; max_force: number } };
 export interface CommandReceipt {

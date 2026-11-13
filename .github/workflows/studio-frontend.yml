@@ -40,4 +40,4 @@ jobs:
       - name: Test MuJoCo and PyBullet actuator controls
         run: |
           python -m pip install 'mujoco>=4,<5' pybullet
-          PYTHONPATH=parameter_studio python -m unittest parameter_studio.tests.test_sim_worker -v
+          PYTHONPATH=parameter_studio python -m unittest parameter_studio.tests.test_sim_worker parameter_studio.tests.test_sim_health parameter_studio.tests.test_sim_coupling parameter_studio.tests.test_sim_snapshot_api parameter_studio.tests.test_sim_playback -v
