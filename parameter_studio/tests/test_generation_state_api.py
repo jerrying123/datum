@@ -27,12 +27,16 @@ class GenerationStateAPI(unittest.TestCase):
                         break
                     except OSError:
                         time.sleep(0.05)
-                for state in ({'kind': 'configuration', 'value': 'unknown', 'sha256': '0' * 64}, {'kind': 'history', 'value': 1, 'sha256': 'f' * 64}, {}):
-                    req = urllib.request.Request(url + '/api/generate', data=json.dumps({'cad_state': state}).encode(), headers={'Content-Type': 'application/json'})
+                for state in ({'kind': 'configuration', 'value': 'unknown', 'sha256': '0' * 64}, {'kind': 'history', 'value': 1, 'sha256': 'f' * 64}):
+                    req = urllib.request.Request(url + '/api/generate', data=json.dumps({'cad_state': state, 'assembly': 'assembly.solidcraft'}).encode(), headers={'Content-Type': 'application/json'})
                     with self.assertRaises(urllib.error.HTTPError) as result:
                         urllib.request.urlopen(req)
                     self.assertEqual(result.exception.code, 400)
                     self.assertEqual(json.load(result.exception)['code'], 'CAD_STATE_EXTRACTION_UNSUPPORTED')
+                req = urllib.request.Request(url + '/api/generate', data=json.dumps({'cad_state': {'kind': 'configuration'}}).encode(), headers={'Content-Type': 'application/json'})
+                with self.assertRaises(urllib.error.HTTPError) as result:
+                    urllib.request.urlopen(req)
+                self.assertEqual(result.exception.code, 400)
             finally:
                 server.terminate()
                 server.wait(timeout=5)
