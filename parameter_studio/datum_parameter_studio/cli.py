@@ -1,4 +1,5 @@
 import argparse
+import hashlib
 import json
 import os
 import signal
@@ -68,7 +69,7 @@ def main():
                     parser.error("materialize requires solidcraft-cli on PATH")
                 activate(captured_source, selection, exporter, run, 120)
                 shutil.copyfile(captured_source, output)
-            print(json.dumps({"output": str(output), "selection": selection, "activated_sha256": __import__("hashlib").sha256(output.read_bytes()).hexdigest()}))
+            print(json.dumps({"output": str(output), "selection": selection, "activated_sha256": hashlib.sha256(output.read_bytes()).hexdigest()}))
         except (OSError, ValueError, zipfile.BadZipFile, KeyError, subprocess.TimeoutExpired) as exc:
             parser.error(str(exc))
         return
