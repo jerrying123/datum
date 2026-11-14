@@ -1,6 +1,8 @@
 import json
+import hashlib
 import os
 from pathlib import Path
+import shutil
 import socket
 import subprocess
 import tempfile
@@ -14,6 +16,10 @@ class GenerationStateAPI(unittest.TestCase):
     def test_selected_state_is_rejected_before_generation(self):
         studio = Path(__file__).resolve().parents[1] / 'datum_parameter_studio'
         with tempfile.TemporaryDirectory() as root, socket.socket() as sock:
+            assembly = Path(root) / 'assembly.solidcraft'
+            fixture = Path(__file__).resolve().parents[2] / 'examples' / 'cad_history' / 'assembly.solidcraft'
+            shutil.copyfile(fixture, assembly)
+            digest = hashlib.sha256(assembly.read_bytes()).hexdigest()
             sock.bind(('127.0.0.1', 0))
             port = sock.getsockname()[1]
             sock.close()
@@ -27,12 +33,17 @@ class GenerationStateAPI(unittest.TestCase):
                         break
                     except OSError:
                         time.sleep(0.05)
-                for state in ({'kind': 'configuration', 'value': 'unknown', 'sha256': '0' * 64}, {'kind': 'history', 'value': 1, 'sha256': 'f' * 64}):
+                for state in ({'kind': 'configuration', 'value': 'Parallel gripper', 'sha256': digest}, {'kind': 'history', 'value': 3, 'sha256': digest}):
                     req = urllib.request.Request(url + '/api/generate', data=json.dumps({'cad_state': state, 'assembly': 'assembly.solidcraft'}).encode(), headers={'Content-Type': 'application/json'})
                     with self.assertRaises(urllib.error.HTTPError) as result:
                         urllib.request.urlopen(req)
                     self.assertEqual(result.exception.code, 400)
                     self.assertEqual(json.load(result.exception)['code'], 'CAD_STATE_EXTRACTION_UNSUPPORTED')
+                stale = {'kind': 'configuration', 'value': 'Parallel gripper', 'sha256': '0' * 64}
+                req = urllib.request.Request(url + '/api/generate', data=json.dumps({'cad_state': stale, 'assembly': 'assembly.solidcraft'}).encode(), headers={'Content-Type': 'application/json'})
+                with self.assertRaises(urllib.error.HTTPError) as result:
+                    urllib.request.urlopen(req)
+                self.assertEqual(result.exception.code, 409)
                 req = urllib.request.Request(url + '/api/generate', data=json.dumps({'cad_state': {'kind': 'configuration'}}).encode(), headers={'Content-Type': 'application/json'})
                 with self.assertRaises(urllib.error.HTTPError) as result:
                     urllib.request.urlopen(req)
