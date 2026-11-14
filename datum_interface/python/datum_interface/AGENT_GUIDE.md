@@ -472,3 +472,11 @@ python -c "from importlib.resources import files; print(files('datum_interface')
 - `examples/cpp-pick-place/README.md`: generated and runtime C++ comparison
 - `examples/ros2_cpp_pick_place/README.md`: ROS 2 consumer
 - `BENCHMARKS.md`: startup measurements and reproduction
+
+### Studio CAD feature states
+
+The optional Studio package can inspect history points and native configuration
+rows with `dparam-std configurations --project PROJECT --assembly robot.solidcraft`.
+These CAD states are independent of parameter spec worktrees. Selected-state
+parameter extraction is not supported; use the saved state for DParams. See the
+Studio README for activation and simulation limitations.

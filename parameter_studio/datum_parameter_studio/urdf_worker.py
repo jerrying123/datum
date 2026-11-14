@@ -47,6 +47,20 @@ def run(project, job, preflight, exporter, timeout=120):
         return (job / 'cancel').exists()
     def check_cancel():
         if cancelled(): raise InterruptedError('Cancelled')
+    def run_cancellable(command, deadline):
+        with tempfile.TemporaryFile() as log:
+            child = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+            while child.poll() is None:
+                if cancelled() or time.monotonic() > deadline:
+                    os.killpg(child.pid, signal.SIGTERM)
+                    try: child.wait(timeout=3)
+                    except subprocess.TimeoutExpired: os.killpg(child.pid, signal.SIGKILL); child.wait()
+                    if cancelled(): raise InterruptedError('Cancelled')
+                    raise TimeoutError('CAD state activation timed out')
+                time.sleep(.1)
+            log.seek(0, os.SEEK_END)
+            size = log.tell(); log.seek(max(0, size - 65536))
+            return child.returncode, log.read(65536).decode(errors='replace')
     def scan(root):
         result = subprocess.run([str(preflight), str(root), assembly], capture_output=True, text=True, timeout=30)
         data = json.loads(result.stdout)
@@ -66,7 +80,30 @@ def run(project, job, preflight, exporter, timeout=120):
             captured = scan(scratch)
             if source['sources'] != captured['sources'] or source['sources'] != scan(project)['sources']:
                 raise ValueError('Source changed during capture')
+            check_cancel()
+            activated_sha256 = None
+            activated_preflight = None
+            cad_state = request.get('cad_state')
+            if cad_state is not None:
+                from .configurations import activate, validate_capture
+                activated_sha256 = activate(scratch / assembly, cad_state, exporter, run_cancellable, time.monotonic() + timeout)
+                activated_preflight = scan(scratch)
+                validate_capture(source, activated_preflight, assembly)
             check_cancel(); status('exporting')
+            if request.get('preview') is True:
+                model = Path(temp) / 'model.3mf'
+                script = Path(temp) / 'preview.json'
+                script.write_text(json.dumps({'commands': [{'command': 'file.export', 'params': {'path': str(model), 'format': '3mf-tagged'}}]}))
+                code, output = run_cancellable([str(exporter), 'run', str(script), '--in', str(scratch / assembly), '--quiet'], time.monotonic() + timeout)
+                if code or not model.is_file() or model.is_symlink() or model.stat().st_size > 256 * 1024 * 1024:
+                    raise ValueError('CAD preview failed: ' + output[-1000:])
+                if scan(project)['sources'] != source['sources']:
+                    raise ValueError('Source changed during preview')
+                check_cancel()
+                shutil.copyfile(model, job / 'model.3mf.tmp')
+                os.replace(job / 'model.3mf.tmp', job / 'model.3mf')
+                status('succeeded', freshness='current')
+                return None
             bundle = Path(temp) / 'bundle'; bundle.mkdir(); urdf = bundle / 'robot.urdf'
             with tempfile.TemporaryFile() as log:
                 child = subprocess.Popen([str(exporter), 'run', '--quiet', '--in', str(scratch / assembly), '--out', str(urdf)], stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
@@ -90,13 +127,13 @@ def run(project, job, preflight, exporter, timeout=120):
             if any(p.is_symlink() or not p.resolve().is_relative_to(bundle.resolve()) for p in outputs): raise ValueError('Unsafe output')
             version = subprocess.run([str(exporter), '--version'], capture_output=True, text=True, timeout=10)
             report = {'schema':'datum.studio-urdf-worker-report/1', 'execution':'complete',
-                      'capture':{'mode':'saved-files','assembly':assembly,'hash_algorithm':'blake3'},
+                      'capture':{'mode':'saved-files','assembly':assembly,'hash_algorithm':'blake3', 'cad_state':cad_state, 'activated_sha256':activated_sha256},
                       'exporter':{'version':version.stdout.strip() if version.returncode==0 else None},
                       'outputs_sha256':{p.relative_to(bundle).as_posix():hashlib.sha256(p.read_bytes()).hexdigest() for p in outputs},
-                      'source_preflight':source, 'structural_checks':result,
+                      'source_preflight':source, 'activated_preflight':activated_preflight, 'structural_checks':result,
                       'cad_urdf_fidelity_checks':check_fidelity(scratch / assembly, urdf),
                       'physics_checks':check_physics(urdf, bundle),
-                      'assembly_fidelity':source['source_fidelity'],
+                      'assembly_fidelity':(activated_preflight or source)['source_fidelity'],
                       'freshness':'current' if fresh else 'stale',
                       'physics_readiness':'unknown', 'note':'Saved-file capture; freshness was checked at export completion. Physics and source-to-URDF equivalence are not verified.'}
             (bundle / 'report.json').write_text(json.dumps(report, indent=2) + '\n')

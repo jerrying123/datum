@@ -148,3 +148,32 @@ body[data-view=split] .cad-instructions{top:110px}body[data-view=split] .preview
 body[data-view=simulation] .preview-card>#preview{visibility:visible;opacity:0;pointer-events:none}
 .sim-viewport{transition:opacity .4s ease,visibility .4s,left .4s ease,top .4s ease;transform:none}
 @media(prefers-reduced-motion:reduce){.preview-card,.preview-card #preview,.sim-viewport{transition:none}}
+
+/* Shared workspace type scale and form controls. */
+.workspace-panel { font-size: 14px; line-height: 1.5; }
+.workspace-panel .step, .workspace-panel .workflow-heading span,
+.workspace-panel .sim-eyebrow, .workspace-panel .sim-section-title > span {
+  font-size: 12px; font-weight: 600; letter-spacing: .08em;
+}
+.workspace-panel .workflow-heading strong, .workspace-panel h2 { font-size: 18px; font-weight: 600; }
+.workspace-panel h3, .workspace-panel .workflow-switch button strong,
+.workspace-panel #feature-tree summary { font-size: 14px; font-weight: 600; }
+.workspace-panel .hint, .workspace-panel .flow-status, .workspace-panel .sim-note,
+.workspace-panel .sim-intro, .workspace-panel .sim-section-title p,
+.workspace-panel .workflow-switch button span, .workspace-panel footer,
+.workspace-panel .source-ref, .workspace-panel .sim-status,
+.workspace-panel .sim-joint-readout, .workspace-panel .sim-control-feedback { font-size: 13px; font-weight: 400; }
+.workspace-panel .workspace-tabs button, .workspace-panel .simulation-panel .sim-actions button,
+.workspace-panel .sim-section > button, .workspace-panel .sim-advanced summary,
+.workspace-panel .tree-row, .workspace-panel .file-line { font-size: 13px; font-weight: 500; }
+.workspace-panel label, .workspace-panel .simulation-panel .sim-fields label,
+.workspace-panel .playback-controls label { font-size: 13px; font-weight: 600; }
+.cad-state-field { display: flex; flex-direction: column; gap: 6px; margin: 16px 0; }
+.cad-state-field label { color: #385345; }
+.cad-state-field select {
+  width: 100%; min-width: 0; min-height: 42px; padding: 10px 12px;
+  border: 1px solid #cadbd0; border-radius: 7px; background: #fbfdfb;
+  color: #243a2d; font: inherit; font-size: 14px;
+}
+.cad-state-field select:focus-visible { outline: 3px solid #27a77c; outline-offset: 2px; }
+.cad-state-field .hint { margin: 0; color: #687f70; }

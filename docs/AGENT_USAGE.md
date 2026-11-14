@@ -111,3 +111,5 @@ The full error table is in the
 When handing work back, record the integration mode, the exact values and units,
 the consumed spec/source hashes, the validation command, and whether Studio was
 used. Do not edit user CAD or bypass spec/source hash checks to make a run pass.
+
+For optional CAD feature-state discovery, see [CAD feature states](../parameter_studio/README.md#cad-feature-states). `dparam-std configurations --project PROJECT --assembly robot.solidcraft` inspects a saved file without launching Studio. These states are independent of parameter spec worktrees; parameter extraction for selected states is not supported yet.

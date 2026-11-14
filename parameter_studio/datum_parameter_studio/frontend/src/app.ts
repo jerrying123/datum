@@ -20,6 +20,13 @@ let viewportHighlight: () => void = () => {
 let viewportRenderer: THREE.WebGLRenderer | null = null;
 let viewportControls: OrbitControls | null = null;
 let resizeObserver: ResizeObserver | null = null;
+let statePreviewRequest = 0;
+let statePreviewJob: {id: string, capability: string} | null = null;
+function cancelStatePreview() {
+    const job = statePreviewJob;
+    statePreviewJob = null;
+    if (job) void fetch(`/api/urdf/jobs/${encodeURIComponent(job.id)}/cancel`, {method:'POST', headers:{'X-Dparams-Capability':job.capability}}).catch(() => {});
+}
 let viewportState: 'idle' | 'loading' | 'ready' | 'failed' = 'idle';
 type WorkspaceTab = 'parts' | 'features' | 'mappings' | 'export' | 'simulation';
 let activeTab: WorkspaceTab = 'parts';
@@ -344,6 +351,8 @@ function openSource(file: CadFile, feature: CadFeature) {
         showInspectorMessage(`Source part ${path || 'path'} is not present in the mounted project.`);
 }
 function selectFile(path: string, remember = true) {
+    statePreviewRequest++;
+    cancelStatePreview();
     if (inspectionRequest) {
         inspectionRequest.abort();
         inspectionRequest = null;
@@ -353,6 +362,7 @@ function selectFile(path: string, remember = true) {
         return;
     if (remember && selectedPath && selectedPath !== path)
         navigation.push(selectedPath);
+    if (selectedPath !== path || (selectedCadState() && selectedCadState()?.sha256 !== f.fingerprint)) void refreshConfigurations(path);
     selectedPath = path;
     inspectionPath = path;
     selectedOccurrence = null;
@@ -373,6 +383,14 @@ function renderFiles() {
         list.textContent = 'No SolidCraft files found in the mounted project.';
         return;
     }
+    if (!selectedPath || !files.some(f => f.path === selectedPath)) {
+        // Prefer an assembly so its parts and history are visible on first load.
+        const initial = files.find(f => (f.occurrences?.length || 0) > 0) || files[0];
+        selectedPath = initial.path;
+        inspectionPath = initial.path;
+        void refreshConfigurations(initial.path);
+        drawPreview(initial);
+    }
     for (const f of files) {
         const b = document.createElement('button');
         b.className = 'file-line' + (f.path === selectedPath ? ' active' : '');
@@ -382,11 +400,6 @@ function renderFiles() {
         b.append(name, detail);
         b.onclick = () => selectFile(f.path);
         list.append(b);
-    }
-    if (!selectedPath || !files.some(f => f.path === selectedPath)) {
-        selectedPath = files[0].path;
-        inspectionPath = selectedPath;
-        drawPreview(files[0]);
     }
 }
 function renderAssemblyTree() {
@@ -486,7 +499,7 @@ function setupOrientation(camera: THREE.PerspectiveCamera, controls: OrbitContro
         });
     };
 }
-function drawPreview(file: CadFile) {
+function drawPreview(file: CadFile, modelUrl?: string) {
     viewportState = 'loading';
     $('#preview-label').textContent = file.path;
     const host = $('#preview');
@@ -552,10 +565,11 @@ function drawPreview(file: CadFile) {
             camera.updateProjectionMatrix();
         });
         resizeObserver.observe(host);
-        new ThreeMFLoader().load(`/api/model/${file.previewId}?v=${file.fingerprint}`, group => {
+        new ThreeMFLoader().load(modelUrl || `/api/model/${file.previewId}?v=${file.fingerprint}`, group => {
             if (viewportRenderer !== renderer)
                 return;
             viewportState = 'ready';
+            if (modelUrl) $('#cad-configuration-status').textContent = 'Showing the selected state. Parameter generation uses saved CAD.';
             model = group;
             scene.add(group);
             const entries = occurrences(file), meshCounts = new Map<string, number>();
@@ -615,7 +629,8 @@ function drawPreview(file: CadFile) {
                 renderer.dispose();
                 viewportRenderer = null;
                 host.replaceChildren();
-                drawPreviewPng(file, host);
+                if (modelUrl) { host.textContent = 'Could not display the selected CAD state.'; $('#cad-configuration-status').textContent = 'Could not load the selected CAD state.'; }
+                else drawPreviewPng(file, host);
             }
         });
         renderer.domElement.addEventListener('pointerdown', e => {
@@ -904,6 +919,97 @@ function updateHelp() {
 $('#help-toggle').checked = localStorage.getItem('dparams-help') !== 'off';
 $('#help-toggle').onchange = updateHelp;
 updateHelp();
+type CadState = {kind: 'history' | 'configuration'; value: number | string; sha256: string};
+let cadStates: CadState[] = [];
+let statePath: string | null = null;
+let stateRequest = 0;
+function selectedCadState(): CadState | undefined {
+    const index = Number($('#cad-configuration').value);
+    return $('#cad-configuration').value && statePath === selectedPath ? cadStates[index] : undefined;
+}
+async function refreshConfigurations(path: string) {
+    const request = ++stateRequest;
+    statePath = null;
+    cadStates = [];
+    const select = $('#cad-configuration');
+    select.replaceChildren(new Option('Saved state', ''));
+    $('#cad-configuration-status').textContent = 'Loading CAD history…';
+    updateSpecPreview();
+    try {
+        const response = await fetch(`/api/configurations?assembly=${encodeURIComponent(path)}`, {cache:'no-store'});
+        const body: unknown = await response.json();
+        if (request !== stateRequest || selectedPath !== path) return;
+        if (!response.ok || !isRecord(body) || typeof body.sha256 !== 'string' || !Array.isArray(body.history) || !Array.isArray(body.configurations)) throw Error('Could not inspect CAD history.');
+        const sha256 = body.sha256;
+        const historyGroup = document.createElement('optgroup');
+        historyGroup.label = 'Feature history';
+        const configGroup = document.createElement('optgroup');
+        configGroup.label = 'CAD configurations';
+        for (const feature of body.history) {
+            if (!isRecord(feature) || typeof feature.id !== 'number' || typeof feature.name !== 'string') continue;
+            historyGroup.append(new Option(`After ${feature.name}`, String(cadStates.length)));
+            cadStates.push({kind:'history', value:feature.id, sha256});
+        }
+        for (const name of body.configurations) {
+            if (typeof name !== 'string') continue;
+            configGroup.append(new Option(name, String(cadStates.length)));
+            cadStates.push({kind:'configuration', value:name, sha256});
+        }
+        select.replaceChildren(new Option('Saved state', ''));
+        if (historyGroup.children.length) select.append(historyGroup);
+        if (configGroup.children.length) select.append(configGroup);
+        statePath = path;
+        $('#cad-configuration-status').textContent = 'Feature points are linear history positions; branch tips are not available in SolidCraft.';
+    } catch (error) { if (request === stateRequest) $('#cad-configuration-status').textContent = errorMessage(error); }
+}
+$('#cad-configuration').onchange = async () => {
+    const request = ++statePreviewRequest, state = selectedCadState(), file = files.find(f => f.path === selectedPath);
+    cancelStatePreview();
+    updateSpecPreview();
+    if (!file) return;
+    if (!state) {
+        $('#cad-configuration-status').textContent = 'Showing the saved CAD state.';
+        drawPreview(file);
+        return;
+    }
+    $('#cad-configuration-status').textContent = 'Preparing the selected CAD state…';
+    viewportState = 'loading';
+    if (viewportControls) viewportControls.dispose();
+    if (viewportRenderer) { viewportRenderer.dispose(); viewportRenderer = null; }
+    $('#preview').textContent = 'Preparing selected CAD state…';
+    try {
+        const capability = await urdfRequest('/api/urdf/capabilities', contract.capability);
+        if (!capability.available || !capability.capability) throw Error('CAD preview worker unavailable.');
+        const receipt = await urdfRequest('/api/urdf/jobs', contract.urdfStart, {method:'POST', headers:{'Content-Type':'application/json', 'X-Dparams-Capability':capability.capability}, body:JSON.stringify({assembly:file.path, cad_state:state, preview:true})});
+        const id = receipt.id || receipt.job_id;
+        if (!id) throw Error('Preview job did not start.');
+        if (request !== statePreviewRequest || selectedPath !== file.path) {
+            void fetch(`/api/urdf/jobs/${encodeURIComponent(id)}/cancel`, {method:'POST', headers:{'X-Dparams-Capability':capability.capability}}).catch(() => {});
+            return;
+        }
+        statePreviewJob = {id, capability:capability.capability};
+        for (let i=0; i<120; i++) {
+            if (request !== statePreviewRequest || selectedPath !== file.path) return;
+            const job = await urdfRequest(`/api/urdf/jobs/${encodeURIComponent(id)}`, contract.urdfStatus);
+            if (job.state === 'succeeded') {
+                statePreviewJob = null;
+                if (job.freshness !== 'current') throw Error('CAD changed while preparing the preview.');
+                drawPreview(file, `/api/urdf/jobs/${encodeURIComponent(id)}/model`);
+                $('#cad-configuration-status').textContent = 'Loading the selected CAD geometry…';
+                return;
+            }
+            if (job.state === 'failed' || job.state === 'cancelled') throw Error(typeof job.error === 'string' ? job.error : 'CAD preview failed.');
+            await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+        throw Error('CAD preview timed out.');
+    } catch (error) {
+        if (request !== statePreviewRequest || selectedPath !== file.path) return;
+        cancelStatePreview();
+        viewportState = 'failed';
+        $('#preview').textContent = 'Selected CAD state could not be previewed.';
+        $('#cad-configuration-status').textContent = errorMessage(error);
+    }
+};
 let catalogSignature: string | null = null;
 async function refresh() {
     try {
@@ -917,7 +1023,7 @@ async function refresh() {
             for (const file of files)
                 snapshots.set(file.path, file);
             const current = files.find(f => f.path === selectedPath);
-            if (current && viewportState === 'failed')
+            if (current && viewportState === 'failed' && !selectedCadState())
                 drawPreview(current);
             return;
         }
@@ -959,6 +1065,9 @@ async function refresh() {
                 mapping.stale = true;
         const selectedRemoved = selectedPath && !paths.has(selectedPath);
         if (selectedRemoved) {
+            statePreviewRequest++; cancelStatePreview();
+            stateRequest++; statePath = null; cadStates = [];
+            $('#cad-configuration').replaceChildren(new Option('Saved state', ''));
             selectedPath = null;
             inspectionPath = null;
             selectedOccurrence = null;
@@ -968,12 +1077,20 @@ async function refresh() {
             inspectionChanged = true;
         }
         files = body.files;
+        if (selectedChanged && selectedCadState()) {
+            statePreviewRequest++; cancelStatePreview();
+            if (viewportControls) viewportControls.dispose();
+            if (viewportRenderer) { viewportRenderer.dispose(); viewportRenderer = null; }
+            viewportState = 'failed';
+            $('#preview').textContent = 'CAD changed. Select the file again to preview its states.';
+            $('#cad-configuration-status').textContent = 'CAD changed; this selection is stale. Select the file again before exporting.';
+        }
         // Keep DOM nodes and keyboard focus stable between unchanged polls.
         renderFiles();
         renderUrdfSelection();
         if (!inspectionRequest && (firstLoad || selectedRemoved || selectedChanged || inspectionChanged)) {
             const current = files.find(f => f.path === selectedPath);
-            if (current && selectedChanged)
+            if (current && selectedChanged && !selectedCadState())
                 drawPreview(current);
             if (selectedChanged || inspectionChanged)
                 selectedFeature = null;
@@ -991,6 +1108,7 @@ async function refresh() {
     }
 }
 function buildSpec() {
+    if (selectedCadState()) throw Error('Parameter generation for selected CAD states is not supported. Choose Saved state first.');
     const params: Record<string, ParameterSource> = {};
     for (const m of mappings) {
         if (m.stale)
@@ -1195,7 +1313,7 @@ $('#urdf-start').onclick = async () => {
     urdfBusy = true;
     renderUrdfSelection();
     try {
-        const b = await urdfRequest('/api/urdf/jobs', contract.urdfStart, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Dparams-Capability': urdfCapability }, body: JSON.stringify({ assembly }) });
+        const b = await urdfRequest('/api/urdf/jobs', contract.urdfStart, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Dparams-Capability': urdfCapability }, body: JSON.stringify({ assembly, cad_state: selectedCadState() }) });
         const id = b.id || b.job_id;
         if (!id)
             throw Error('Server returned no job ID.');
@@ -1627,6 +1745,8 @@ reconnectUrdf();
     }
     async function reconnect() {
         clearTimeout(timer);
+        el('reconnect').disabled = true;
+        el('status').textContent = 'Checking connection…';
         try {
             await refreshCapability();
             const history = await req('/api/simulation/sessions', contract.history);
@@ -1656,11 +1776,24 @@ reconnectUrdf();
                 if (active)
                     session = { id: active.id, backend: active.backend, assembly: active.assembly };
             }
-            if (session)
+            if (session) {
                 await poll();
+            } else {
+                const backend = capability?.backends?.[el('backend').value.toLowerCase()];
+                const available = capability?.available && backend?.supported;
+                el('status').textContent = available ? 'Ready · no active session' : 'No active session';
+                el('viewport-state').textContent = available ? 'Ready to start' : 'Engine unavailable';
+                el('view-status').textContent = available
+                    ? 'Choose an assembly and start a simulation.'
+                    : 'Select an available engine to start a simulation. See session setup for details.';
+            }
         }
         catch (e) {
-            el('capabilities').textContent = errorMessage(e);
+            el('status').textContent = `Connection failed: ${errorMessage(e)}`;
+            el('viewport-state').textContent = 'Connection failed';
+            el('view-status').textContent = 'Could not reconnect to the simulation service.';
+        } finally {
+            el('reconnect').disabled = false;
         }
     }
     setInterval(() => { void refreshCapability(); }, 5000);
@@ -1677,7 +1810,7 @@ reconnectUrdf();
         updateJointReadout();
         showControlState();
         try {
-            const backend = el('backend').value.toLowerCase(), assembly = el('assembly').value, r = await req('/api/simulation/sessions', contract.receipt, { method: 'POST', headers: { ...headers(), 'Content-Type': 'application/json' }, body: JSON.stringify({ backend, assembly }) });
+            const backend = el('backend').value.toLowerCase(), assembly = el('assembly').value, r = await req('/api/simulation/sessions', contract.receipt, { method: 'POST', headers: { ...headers(), 'Content-Type': 'application/json' }, body: JSON.stringify({ backend, assembly, cad_state: selectedCadState() }) });
             session = { id: r.id, backend, assembly };
             sceneId = null;
             await poll();

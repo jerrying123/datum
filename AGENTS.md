@@ -45,6 +45,12 @@ cargo build --manifest-path rust/Cargo.toml --bins
 `solidcraft-cli` is required for real CAD rendering/export and the C++ example.
 Tests use synthetic CAD or temporary projects; do not depend on a user's CAD.
 
+## Sharing local Studio links
+
+- When sharing a running local Studio or other local web service with the user,
+  provide its working Tailscale URL. Do not provide a localhost-only link.
+  Preserve existing Tailscale Serve routes when exposing a service.
+
 ## Checks before proposing a change
 
 Run the relevant suites from the repository root:

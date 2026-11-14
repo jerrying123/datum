@@ -53,6 +53,26 @@ async function validateSource(name,base) {
   const stat=await fs.stat(resolved);
   if(!stat.isFile()||stat.size>100*1024*1024) throw new Error('Source must be a file under 100 MiB.');
 }
+app.get('/api/configurations',async(req,res)=>{
+  try {
+    const base=await fs.realpath(projectRoot), name=req.query.assembly;
+    await validateSource(name,base);
+    const bytes=await fs.readFile(path.join(base,name));
+    const entry=new AdmZip(bytes).getEntry('document.json');
+    if(!entry || entry.header.size>100*1024*1024) throw new Error('Invalid CAD document.');
+    const doc=JSON.parse(entry.getData().toString('utf8'));
+    if(!Array.isArray(doc.features)) throw new Error('Invalid feature history.');
+    const ids=new Map(); for(const f of doc.features) if(Number.isSafeInteger(f?.id)) ids.set(f.id,(ids.get(f.id)||0)+1);
+    const history=doc.features.filter(f=>Number.isSafeInteger(f?.id) && ids.get(f.id)===1).map(f=>({id:f.id,name:typeof f.name==='string'&&f.name?f.name:String(f.id)}));
+    const rows=Array.isArray(doc.configs?.rows)?doc.configs.rows:[];
+    const names=new Map(); for(const r of rows) if(typeof r?.name==='string') names.set(r.name,(names.get(r.name)||0)+1);
+    const configurations=rows.filter(r=>typeof r?.name==='string' && r.name && names.get(r.name)===1).map(r=>r.name);
+    res.set('Cache-Control','no-store').json({sha256:createHash('sha256').update(bytes).digest('hex'),history,configurations,branch_reason:'SolidCraft does not expose feature-history branches.'});
+  } catch(e) { res.status(400).json({error:e.message}); }
+});
+function validCadState(state) {
+  return state===undefined || state===null || (state && typeof state==='object' && !Array.isArray(state) && Object.keys(state).sort().join(',')==='kind,sha256,value' && /^[a-f0-9]{64}$/.test(state.sha256) && ((state.kind==='history' && Number.isSafeInteger(state.value)) || (state.kind==='configuration' && typeof state.value==='string' && state.value.length>0 && state.value.length<=256)));
+}
 app.post('/api/generate',async(req,res)=>{
   let scratch;
   try {
@@ -110,7 +130,7 @@ app.post('/api/urdf/jobs',async(req,res)=>{
   if(!authorized(req)) return res.status(403).json({error:'Invalid origin or capability.'});
   if(!await spoolReady()) return res.status(503).json({error:'URDF worker unavailable.'});
   const body=req.body;
-  if(!body||typeof body!=='object'||Array.isArray(body)||Object.keys(body).length!==1||typeof body.assembly!=='string'||!/\.(solidcraft|sc)$/i.test(body.assembly)) return res.status(400).json({error:'Provide an assembly path.'});
+  if(!body||typeof body!=='object'||Array.isArray(body)||Object.keys(body).some(k=>!['assembly','cad_state','preview'].includes(k))||!validCadState(body.cad_state)||(body.preview!==undefined && typeof body.preview!=='boolean')||typeof body.assembly!=='string'||!/\.(solidcraft|sc)$/i.test(body.assembly)) return res.status(400).json({error:'Provide an assembly path.'});
   try { await validateSource(body.assembly,await fs.realpath(projectRoot)); } catch { return res.status(400).json({error:'Invalid assembly path.'}); }
   const previous=queueLock; let release; queueLock=new Promise(resolve=>{release=resolve;}); await previous;
   try {
@@ -127,7 +147,7 @@ app.post('/api/urdf/jobs',async(req,res)=>{
     try {
       await fs.writeFile(path.join(dir,'status.json.tmp'),JSON.stringify({state:'queued',freshness:null,structural_checks:null,assembly_fidelity:null,error:null}),{flag:'wx'});
       await fs.rename(path.join(dir,'status.json.tmp'),path.join(dir,'status.json'));
-      await fs.writeFile(path.join(dir,'request.json.tmp'),JSON.stringify({assembly:body.assembly}),{flag:'wx'});
+      await fs.writeFile(path.join(dir,'request.json.tmp'),JSON.stringify({assembly:body.assembly,...(body.cad_state ? {cad_state:body.cad_state} : {}),...(body.preview ? {preview:true} : {})}),{flag:'wx'});
       await fs.rename(path.join(dir,'request.json.tmp'),path.join(dir,'request.json'));
     } catch(e) { await fs.rm(dir,{recursive:true,force:true}); throw e; }
     res.status(202).json({id});
@@ -141,9 +161,9 @@ app.post('/api/urdf/jobs/:id/cancel',async(req,res)=>{
   try { const dir=await jobDirectory(req.params.id); await fs.writeFile(path.join(dir,'cancel'),'',{flag:'wx'}).catch(e=>{if(e.code!=='EEXIST') throw e;}); res.status(202).json({cancelled:true}); } catch(e) { jobError(res,e); }
 });
 app.get('/api/urdf/jobs/:id/:artifact',async(req,res)=>{
-  if(!['report','bundle'].includes(req.params.artifact)) return res.sendStatus(404);
+  if(!['report','bundle','model'].includes(req.params.artifact)) return res.sendStatus(404);
   let h;
-  try { const dir=await jobDirectory(req.params.id), status=await readJobStatus(dir); if(status.state!=='succeeded') return res.status(409).json({error:'Job output is not complete.'}); const name=req.params.artifact==='report'?'report.json':'bundle.zip'; h=await openJobFile(dir,name); res.set('Cache-Control','no-store').type(name.endsWith('.zip')?'application/zip':'application/json'); res.set('Content-Disposition',`attachment; filename="${name}"`); const stream=h.createReadStream(); h=null; stream.on('error',()=>res.destroy()); stream.pipe(res); } catch(e) { if(h) await h.close(); jobError(res,e); }
+  try { const dir=await jobDirectory(req.params.id), status=await readJobStatus(dir); if(status.state!=='succeeded') return res.status(409).json({error:'Job output is not complete.'}); const name=req.params.artifact==='report'?'report.json':req.params.artifact==='model'?'model.3mf':'bundle.zip'; h=await openJobFile(dir,name); res.set('Cache-Control','no-store').type(name.endsWith('.zip')?'application/zip':name.endsWith('.3mf')?'model/3mf':'application/json'); res.set('Content-Disposition',`attachment; filename="${name}"`); const stream=h.createReadStream(); h=null; stream.on('error',()=>res.destroy()); stream.pipe(res); } catch(e) { if(h) await h.close(); jobError(res,e); }
 });
 
 // Simulation spool contract: requests and commands are published by atomic rename.
@@ -196,7 +216,7 @@ app.get('/api/simulation/capabilities',async(req,res)=>{
 });
 app.post('/api/simulation/sessions',async(req,res)=>{
   const body=req.body;
-  if(!body||Array.isArray(body)||Object.keys(body).sort().join(',')!=='assembly,backend'||typeof body.backend!=='string'||! /^[a-z][a-z0-9_-]{0,31}$/.test(body.backend)||typeof body.assembly!=='string'||! /\.(solidcraft|sc)$/i.test(body.assembly)) return res.status(400).json({error:'Provide backend and assembly.'});
+  if(!body||Array.isArray(body)||Object.keys(body).some(k=>!['assembly','backend','cad_state'].includes(k))||!validCadState(body.cad_state)||typeof body.backend!=='string'||! /^[a-z][a-z0-9_-]{0,31}$/.test(body.backend)||typeof body.assembly!=='string'||! /\.(solidcraft|sc)$/i.test(body.assembly)) return res.status(400).json({error:'Provide backend and assembly.'});
   try { await validateSource(body.assembly,await fs.realpath(projectRoot)); } catch { return res.status(400).json({error:'Invalid assembly path.'}); }
   const previous=simLock; let release; simLock=new Promise(r=>{release=r;}); await previous;
   try {
@@ -215,7 +235,7 @@ app.post('/api/simulation/sessions',async(req,res)=>{
       await fs.mkdir(path.join(staging,'commands'),{mode:0o700});
       await fs.mkdir(path.join(staging,'acks'),{mode:0o700});
       await publish(staging,'status.json',{state:'queued'});
-      await publish(staging,'request.json',{backend:body.backend,assembly:body.assembly});
+      await publish(staging,'request.json',{backend:body.backend,assembly:body.assembly,...(body.cad_state ? {cad_state:body.cad_state} : {})});
       await fs.rename(staging,dir);
     } catch(e) { await fs.rm(staging,{recursive:true,force:true}); throw e; }
     res.status(202).json({id});

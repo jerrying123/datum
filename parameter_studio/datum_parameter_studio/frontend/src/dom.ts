@@ -23,6 +23,8 @@ export function elementsOfKind<E extends Element>(root: ParentNode, selector: st
 // at compile time, and changed HTML element kinds fail at runtime.
 const studioControls = {
     '#worktree': HTMLInputElement,
+    '#cad-configuration': HTMLSelectElement,
+    '#cad-configuration-status': HTMLParagraphElement,
     '#part-colors': HTMLInputElement,
     '#help-toggle': HTMLInputElement,
     '#spec-preview': HTMLTextAreaElement,

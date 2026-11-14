@@ -6,17 +6,32 @@ import shutil
 import subprocess
 import sys
 import time
+import zipfile
 from pathlib import Path
 
 
 def main():
     parser = argparse.ArgumentParser(description="Run the local Datum Studio with Docker Compose.")
-    parser.add_argument("action", nargs="?", choices=["up", "down", "logs"], default="up")
+    parser.add_argument("action", nargs="?", choices=["up", "down", "logs", "configurations"], default="up")
     parser.add_argument("--port", default=os.environ.get("DATUM_STUDIO_PORT", "8000"))
     parser.add_argument("--project", type=Path, default=Path.cwd(), help="CAD project folder to watch (default: current directory)")
+    parser.add_argument("--assembly", help="Project-relative SolidCraft file for configurations inspection")
     parser.add_argument("--source-repo", type=Path, help="datum-params checkout containing rust/Cargo.toml (required to build the generator)")
     parser.add_argument("--tailscale", action="store_true", help="Share Studio privately over Tailscale HTTPS on port 8443")
     args = parser.parse_args()
+    if args.action == "configurations":
+        from .configurations import discover as configurations
+        try:
+            if not args.assembly:
+                parser.error("configurations requires --assembly")
+            root = args.project.expanduser().resolve(strict=True)
+            source = (root / args.assembly).resolve(strict=True)
+            if not source.is_relative_to(root) or not source.is_file():
+                parser.error("assembly must be a file inside the project")
+            print(json.dumps(configurations(source), indent=2))
+        except (OSError, ValueError, zipfile.BadZipFile, KeyError) as exc:
+            parser.error(str(exc))
+        return
     docker = shutil.which("docker")
     if not docker:
         parser.error("Docker is required. Install Docker Desktop or Docker Engine with the Compose plugin.")

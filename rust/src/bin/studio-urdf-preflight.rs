@@ -50,7 +50,7 @@ impl Scan {
  let mut joint_ids=BTreeSet::new();
  if let Some(joints)=d["assembly"]["joints"].as_array(){for j in joints {
   ensure!(joint_ids.insert(id(&j["id"])? )&&ids.insert(id(&j["id"])?),"duplicate joint identity");
-  ensure!(matches!(j["kind"].as_str(),Some("fixed"|"revolute"|"slider")),"unsupported joint kind");
+  ensure!(matches!(j["kind"].as_str(),Some("fixed"|"rigid"|"revolute"|"slider")),"unsupported joint kind");
   let a=id(&j["a"]["occurrence"])?;let b=id(&j["b"]["occurrence"])?;
   ensure!(a!=b&&incoming.contains_key(&a)&&incoming.contains_key(&b),"invalid joint endpoint");
   ensure!(incoming.insert(b,Some(a)).flatten().is_none(),"multiple joint parents");

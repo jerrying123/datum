@@ -138,3 +138,32 @@ The source checkout also provides `npm run test:browser`, an offline browser
 smoke test. It requires a local Chromium executable; set `CHROMIUM_PATH` if the
 browser is not installed in Playwright's usual cache. It exercises the CAD
 catalog and simulation controls against local synthetic API responses.
+
+## CAD feature states
+
+Select a saved assembly in Studio and choose **CAD feature state**. The list
+comes directly from that file: each `After feature` option rolls the linear
+history marker after that feature, and `CAD configuration` entries are native
+SolidCraft configuration rows. The feature name is a history point, not a
+separate saved label. SolidCraft does not currently expose feature-history
+branches or branch tips. Studio previews the selected state using a temporary
+SolidCraft capture; preview errors are shown in the workspace.
+
+A simulation or URDF export captures the saved assembly and its dependencies,
+checks the selected source hash, then activates the chosen state in the captured
+copy. States that unsuppress imports absent from the original capture are
+rejected; save that state in SolidCraft before starting the export. The report records both the selection and activated file hash; user CAD
+is never edited. Existing running sessions keep their captured inputs. History
+points can leave missing geometry or incomplete joints, so inspect structural
+and physics diagnostics. Freshness and fidelity are independent checks.
+Parameter extraction for a selected state is not supported yet: choose Saved
+state before generating parameters. No JSON configuration descriptor is needed.
+
+Inspect states without Studio:
+
+```sh
+dparam-std configurations --project PROJECT --assembly robot.solidcraft
+```
+
+The Python equivalent is `datum_parameter_studio.configurations.discover(path)`.
+The feature-tree example in `examples/cad_history` includes alternate grippers and native configuration rows. Selection is not persisted across reloads.

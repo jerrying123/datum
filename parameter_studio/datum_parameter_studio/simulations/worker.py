@@ -333,7 +333,7 @@ class Session:
         self.backend = request['backend']
         if not capabilities().get(self.backend, {}).get('supported'):
             raise ValueError('Backend unavailable: ' + str(self.backend))
-        self.source = simulation_input(self.project, request['assembly'], supports_couplings=self.backend in ('mujoco', 'pybullet', 'gazebo'))
+        self.source = simulation_input(self.project, request['assembly'], supports_couplings=self.backend in ('mujoco', 'pybullet', 'gazebo'), cad_state=request.get('cad_state'))
         target = self.directory / 'bundle'
         shutil.copytree(self.source.bundle, target)
         path = target / Path(self.source.urdf_path).relative_to(self.source.bundle)

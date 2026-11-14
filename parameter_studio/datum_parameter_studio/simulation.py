@@ -45,7 +45,7 @@ def _supported_couplings(result, assembly):
     Only simulation engines implementing the constraint may consume this mapping.
     """
     report = result.report
-    preflight = report.get('source_preflight', {})
+    preflight = report.get('activated_preflight') or report.get('source_preflight', {})
     if preflight.get('issues') != ['unsupported_assembly_links']:
         raise ValueError('unsupported source fidelity failure')
     project = Path(result._holder.name) / 'project'
@@ -99,7 +99,7 @@ def _supported_couplings(result, assembly):
     return [{'driver': a['name'], 'driven': b['name'], 'ratio': 1.0, 'offset': 0.0}]
 
 
-def simulation_input(project=None, assembly=None, *, bundle=None, preflight=None, exporter=None, timeout=120, supports_couplings=False):
+def simulation_input(project=None, assembly=None, *, bundle=None, preflight=None, exporter=None, timeout=120, supports_couplings=False, cad_state=None):
     """Create simulator input from saved CAD, retaining its temporary bundle.
 
     A caller opting into ``supports_couplings`` must enforce every relationship
@@ -110,4 +110,4 @@ def simulation_input(project=None, assembly=None, *, bundle=None, preflight=None
         raise ValueError('existing URDF bundles have no verified freshness or fidelity metadata')
     if project is None or assembly is None:
         raise ValueError('project and assembly are required')
-    return SimulationInput(bring_up_urdf(project, assembly, preflight=preflight, exporter=exporter, timeout=timeout), assembly=assembly, supports_couplings=supports_couplings)
+    return SimulationInput(bring_up_urdf(project, assembly, preflight=preflight, exporter=exporter, timeout=timeout, cad_state=cad_state), assembly=assembly, supports_couplings=supports_couplings)
