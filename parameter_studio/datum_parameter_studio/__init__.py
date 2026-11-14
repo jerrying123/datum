@@ -1,1 +1,1 @@
-"""Command line entrypoint for Datum Parameter Studio."""
+"""Command line entrypoint for Datum Studio."""

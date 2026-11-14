@@ -38,7 +38,7 @@ def check_fidelity(assembly, urdf, *, tolerance=1e-6):
             report['checks'].append(entry)
             continue
         target = matches[0]
-        expected = {'fixed': 'fixed', 'revolute': 'revolute', 'slider': 'prismatic'}.get(kind)
+        expected = {'fixed': 'fixed', 'rigid': 'fixed', 'revolute': 'revolute', 'slider': 'prismatic'}.get(kind)
         if expected is None:
             entry['reason'] = 'unsupported source joint type'
         elif target.get('type') != expected:

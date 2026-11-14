@@ -189,7 +189,7 @@ def _extract_part_steps(scratch, sources, steps_dir):
     return extracted, diagnostics
 
 
-def bring_up_urdf(project, assembly, *, preflight=None, exporter=None, timeout=120):
+def bring_up_urdf(project, assembly, *, preflight=None, exporter=None, timeout=120, cad_state=None):
     """Export the saved CAD assembly to URDF at runtime and check it.
 
     Returns RuntimeUrdf with .text (the URDF), .report (capture/export/check
@@ -237,6 +237,13 @@ def bring_up_urdf(project, assembly, *, preflight=None, exporter=None, timeout=1
         captured = scan(scratch)
         if before.get('sources') != captured.get('sources') or before.get('sources') != scan(project).get('sources'):
             raise ValueError('Source changed during capture')
+        activated_sha256 = None
+        activated_preflight = None
+        if cad_state is not None:
+            from .configurations import activate, validate_capture
+            activated_sha256 = activate(scratch / assembly, cad_state, exporter, _run_exporter, time.monotonic() + timeout)
+            activated_preflight = scan(scratch)
+            validate_capture(before, activated_preflight, assembly)
         bundle = Path(holder.name) / 'bundle'
         bundle.mkdir()
         urdf = bundle / 'robot.urdf'
@@ -311,15 +318,17 @@ def bring_up_urdf(project, assembly, *, preflight=None, exporter=None, timeout=1
             'schema': _REPORT_SCHEMA,
             'execution': 'complete',
             'capture': {'mode': 'runtime saved-files', 'assembly': assembly,
-                        'source_hash_algorithm': 'blake3', 'output_hash_algorithm': 'sha256'},
+                        'source_hash_algorithm': 'blake3', 'output_hash_algorithm': 'sha256',
+                        'cad_state': cad_state, 'activated_sha256': activated_sha256},
             'exporter': {'version': version_output.strip() if version_code == 0 else None},
             'outputs_sha256': outputs,
             'geometry': geometry,
             'source_preflight': before,
+            'activated_preflight': activated_preflight,
             'structural_checks': checks,
             'cad_urdf_fidelity_checks': check_fidelity(scratch / assembly, urdf),
             'physics_checks': check_physics(urdf, bundle),
-            'assembly_fidelity': before.get('source_fidelity'),
+            'assembly_fidelity': (activated_preflight or before).get('source_fidelity'),
             'freshness': 'current' if fresh else 'stale',
             'physics_readiness': 'unknown',
             'note': ('Exports from saved CAD at evaluation time; freshness was checked at export completion and the output bundle was '
