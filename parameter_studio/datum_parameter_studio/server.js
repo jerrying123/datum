@@ -76,7 +76,11 @@ function validCadState(state) {
 app.post('/api/generate',async(req,res)=>{
   let scratch;
   try {
-    const {spec,worktree}=req.body||{};
+    const body=req.body;
+    if(!body || typeof body!=='object' || Array.isArray(body)) throw new Error('Provide a parameter spec and valid worktree.');
+    if(Object.hasOwn(body,'cad_state') && body.cad_state !== null) return res.status(400).json({code:'CAD_STATE_EXTRACTION_UNSUPPORTED',error:'Parameter extraction from a selected CAD state is not supported. Choose Saved state and generate again.'});
+    if(Object.keys(body).some(k=>!['spec','worktree','cad_state'].includes(k))) throw new Error('Unknown generation request field.');
+    const {spec,worktree}=body;
     if(!spec||typeof spec!=='object'||Array.isArray(spec)||spec.schema!=='datum.robot.parameter-spec/2'||spec.units!=='m'||typeof worktree!=='string'||!/^[a-z_][a-z0-9_]*$/.test(worktree)||!spec.worktrees||typeof spec.worktrees!=='object'||!Object.hasOwn(spec.worktrees,worktree)) throw new Error('Provide a parameter spec and valid worktree.');
     const tree=spec.worktrees[worktree];
     if(!tree||typeof tree!=='object'||Array.isArray(tree)||!Array.isArray(spec.sources||[])||!Array.isArray(tree.sources||[])||!tree.parameters||typeof tree.parameters!=='object'||Array.isArray(tree.parameters)) throw new Error('Invalid parameter specification.');

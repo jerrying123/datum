@@ -140,6 +140,10 @@ see the [C++ example](examples/cpp-pick-place/README.md).
 
 ## Use the Studio (optional)
 
+See the [Studio guide to parameters and CAD configurations](docs/STUDIO_PARAMETERS_AND_CONFIGURATIONS.md)
+for a walkthrough of dimension mapping, state selection, and current support
+boundaries.
+
 Install Docker with Compose and `solidcraft-cli` on the host for visual rendering
 and URDF export. From the activated source checkout:
 
