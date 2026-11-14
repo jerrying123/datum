@@ -77,6 +77,21 @@ generate parameters from that saved document. Keep a copy of the original CAD
 and verify the selected source path and displayed dimension values before
 generating. Do not assume a spec worktree selects a CAD configuration.
 
+You can materialize a native configuration without changing the saved assembly,
+then map the resulting file in Studio or a spec:
+
+```sh
+dparam-std materialize --project "$PWD/examples/cad_history" \
+  --assembly assembly.solidcraft --configuration "Parallel gripper" \
+  --output "$PWD/examples/cad_history/derived/parallel.solidcraft"
+```
+
+Use `--feature-id ID` instead of `--configuration NAME` for a history point.
+The project is copied to a temporary capture, the requested state is activated
+there, and the activated CAD is written to a new output file. Point parameter
+mappings at that output file; normal runtime/generated hash checks then bind to
+the materialized state. `solidcraft-cli` is required.
+
 ## Verify and use configurations without the browser
 
 List the native configuration rows and history points for an assembly:
