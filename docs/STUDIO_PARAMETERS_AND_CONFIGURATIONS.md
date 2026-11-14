@@ -31,6 +31,9 @@ name parameters and review the generated spec.
 ![Datum Studio Parameters workspace with CAD selection, dimension, and generation steps](images/studio/studio-parameter-workspace.png)
 *The shipped Studio interface. This capture shows the Parameters workspace before a dimension is mapped.*
 
+![Datum Studio showing Cylinder1 height mapped to the code parameter cylinder1_height_m](images/studio/studio-mapped-parameter.png)
+*A selected feature dimension can be named as a code parameter with an explicit output unit.*
+
 1. In the CAD workspace, select the saved assembly, then select a part.
 2. Choose a feature or sketch dimension in the **Dimensions** step. The selected
    explicit numeric value is the source for the mapping.
