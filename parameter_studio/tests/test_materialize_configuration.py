@@ -23,7 +23,7 @@ class MaterializeConfiguration(unittest.TestCase):
             shutil.copytree(ROOT / 'examples/cad_history', project)
             source = project / 'assembly.solidcraft'
             before = hashlib.sha256(source.read_bytes()).hexdigest()
-            output = Path(tmp) / 'derived' / 'parallel.solidcraft'
+            output = project / 'parallel.solidcraft'
             argv = ['dparam-std', 'materialize', '--project', str(project), '--assembly', 'assembly.solidcraft',
                     '--configuration', 'Parallel gripper', '--output', str(output)]
             with patch.object(sys, 'argv', argv), contextlib.redirect_stdout(io.StringIO()):
@@ -39,7 +39,7 @@ class MaterializeConfiguration(unittest.TestCase):
             shutil.copytree(ROOT / 'examples/cad_history', project)
             source = project / 'assembly.solidcraft'
             before = hashlib.sha256(source.read_bytes()).hexdigest()
-            output = Path(tmp) / 'derived' / 'history.solidcraft'
+            output = project / 'history.solidcraft'
             argv = ['dparam-std', 'materialize', '--project', str(project), '--assembly', 'assembly.solidcraft',
                     '--feature-id', '3', '--output', str(output)]
             with patch.object(sys, 'argv', argv), contextlib.redirect_stdout(io.StringIO()):

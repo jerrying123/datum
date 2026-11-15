@@ -49,6 +49,8 @@ def main():
             output = args.output.expanduser().resolve()
             if output.exists() or output == source:
                 parser.error("output must be a new file separate from the saved assembly")
+            if output.parent != source.parent:
+                parser.error("output must be beside the assembly so relative CAD imports keep their paths")
             catalog = discover(source)
             selection = ({"kind": "configuration", "value": args.configuration, "sha256": catalog["sha256"]}
                          if args.configuration else {"kind": "history", "value": args.feature_id, "sha256": catalog["sha256"]})

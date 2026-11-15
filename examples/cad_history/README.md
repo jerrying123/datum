@@ -22,7 +22,7 @@ materialize it to a new file from the host, then map that file in Studio:
 ```sh
 dparam-std materialize --project /path/to/datum/examples/cad_history \
   --assembly assembly.solidcraft --configuration "Parallel gripper" \
-  --output /path/to/datum/examples/cad_history/derived/parallel.solidcraft
+  --output /path/to/datum/examples/cad_history/parallel.solidcraft
 ```
 
 The command activates the selection in a temporary copy and leaves the saved

@@ -86,14 +86,17 @@ then map the resulting file in Studio or a spec:
 ```sh
 dparam-std materialize --project "$PWD/examples/cad_history" \
   --assembly assembly.solidcraft --configuration "Parallel gripper" \
-  --output "$PWD/examples/cad_history/derived/parallel.solidcraft"
+  --output "$PWD/examples/cad_history/parallel.solidcraft"
 ```
 
 Use `--feature-id ID` instead of `--configuration NAME` for a history point.
 The project is copied to a temporary capture, the requested state is activated
-there, and the activated CAD is written to a new output file. Point parameter
-mappings at that output file; normal runtime/generated hash checks then bind to
-the materialized state. `solidcraft-cli` is required.
+there, and the activated CAD is written beside the source assembly so relative
+imports keep resolving. Point parameter mappings at that output file. Hash
+checks protect the materialized file after generation; they do not track changes
+to the original assembly or its dependencies. Re-materialize after changing any
+source CAD. This example's configurations change component suppression; it does
+not demonstrate different parameter values. `solidcraft-cli` is required.
 
 ## Verify and use configurations without the browser
 
