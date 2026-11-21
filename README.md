@@ -29,7 +29,6 @@ odometry and controller-geometry drift, and the planning case uses ground-truth
 localization to isolate footprint selection. The recordings illustrate these
 scenarios, rather than hardware validation or a guarantee for other robots.
 The full simulation sources and evidence are not yet included in this repository.
-The videos use earlier API names; use the current commands below for new code.
 
 ## Quick install
 
