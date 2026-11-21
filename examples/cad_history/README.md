@@ -14,5 +14,17 @@ the saved CAD is unchanged. Simulation and URDF export use the same selection.
 
 The grippers are illustrative static parts, not articulated or physically
 validated mechanisms. Suppressed parts can leave empty links in URDF; inspect
-export diagnostics. Parameter generation uses the saved state and is unavailable
-while an alternate state is selected. SolidCraft does not expose branch tips.
+export diagnostics. The Studio parameter generator reads Saved state; while an
+alternate state is selected it fails closed instead of returning dimensions
+from the wrong state. To make a configuration available as a parameter source,
+materialize it to a new file from the host, then map that file in Studio:
+
+```sh
+dparam-std materialize --project /path/to/datum/examples/cad_history \
+  --assembly assembly.solidcraft --configuration "Parallel gripper" \
+  --output /path/to/datum/examples/cad_history/parallel.solidcraft
+```
+
+The command activates the selection in a temporary copy and leaves the saved
+assembly untouched. `solidcraft-cli` must be installed on the host. SolidCraft
+does not expose branch tips.

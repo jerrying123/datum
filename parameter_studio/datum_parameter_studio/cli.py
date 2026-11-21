@@ -1,10 +1,12 @@
 import argparse
+import hashlib
 import json
 import os
 import signal
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 import zipfile
 from pathlib import Path
@@ -12,10 +14,13 @@ from pathlib import Path
 
 def main():
     parser = argparse.ArgumentParser(description="Run the local Datum Studio with Docker Compose.")
-    parser.add_argument("action", nargs="?", choices=["up", "down", "logs", "configurations"], default="up")
+    parser.add_argument("action", nargs="?", choices=["up", "down", "logs", "configurations", "materialize"], default="up")
     parser.add_argument("--port", default=os.environ.get("DATUM_STUDIO_PORT", "8000"))
     parser.add_argument("--project", type=Path, default=Path.cwd(), help="CAD project folder to watch (default: current directory)")
     parser.add_argument("--assembly", help="Project-relative SolidCraft file for configurations inspection")
+    parser.add_argument("--configuration", help="Native SolidCraft configuration row to materialize")
+    parser.add_argument("--feature-id", type=int, help="Feature history ID to roll to and materialize")
+    parser.add_argument("--output", type=Path, help="New output CAD file for the materialized state")
     parser.add_argument("--source-repo", type=Path, help="datum-params checkout containing rust/Cargo.toml (required to build the generator)")
     parser.add_argument("--tailscale", action="store_true", help="Share Studio privately over Tailscale HTTPS on port 8443")
     args = parser.parse_args()
@@ -30,6 +35,44 @@ def main():
                 parser.error("assembly must be a file inside the project")
             print(json.dumps(configurations(source), indent=2))
         except (OSError, ValueError, zipfile.BadZipFile, KeyError) as exc:
+            parser.error(str(exc))
+        return
+    if args.action == "materialize":
+        from .configurations import activate, discover
+        try:
+            if not args.assembly or not args.output or bool(args.configuration) == (args.feature_id is not None):
+                parser.error("materialize requires --assembly, --output, and exactly one of --configuration or --feature-id")
+            root = args.project.expanduser().resolve(strict=True)
+            source = (root / args.assembly).resolve(strict=True)
+            if not source.is_relative_to(root) or not source.is_file():
+                parser.error("assembly must be a file inside the project")
+            output = args.output.expanduser().resolve()
+            if output.exists() or output == source:
+                parser.error("output must be a new file separate from the saved assembly")
+            if output.parent != source.parent:
+                parser.error("output must be beside the assembly so relative CAD imports keep their paths")
+            catalog = discover(source)
+            selection = ({"kind": "configuration", "value": args.configuration, "sha256": catalog["sha256"]}
+                         if args.configuration else {"kind": "history", "value": args.feature_id, "sha256": catalog["sha256"]})
+            if args.configuration and args.configuration not in catalog["configurations"]:
+                parser.error("configuration is not present in the selected assembly")
+            if args.feature_id is not None and args.feature_id not in [f["id"] for f in catalog["history"]]:
+                parser.error("feature ID is not present in the selected assembly")
+            output.parent.mkdir(parents=True, exist_ok=True)
+            with tempfile.TemporaryDirectory(prefix="datum-config-") as tmp:
+                capture = Path(tmp) / "project"
+                shutil.copytree(root, capture, ignore=shutil.ignore_patterns(".git", ".dparams-studio", "node_modules", "target"))
+                captured_source = capture / source.relative_to(root)
+                def run(command, timeout):
+                    result = subprocess.run(command, capture_output=True, text=True, timeout=timeout)
+                    return result.returncode, result.stdout + result.stderr
+                exporter = shutil.which("solidcraft-cli")
+                if not exporter:
+                    parser.error("materialize requires solidcraft-cli on PATH")
+                activate(captured_source, selection, exporter, run, 120)
+                shutil.copyfile(captured_source, output)
+            print(json.dumps({"output": str(output), "selection": selection, "activated_sha256": hashlib.sha256(output.read_bytes()).hexdigest()}))
+        except (OSError, ValueError, zipfile.BadZipFile, KeyError, subprocess.TimeoutExpired) as exc:
             parser.error(str(exc))
         return
     docker = shutil.which("docker")

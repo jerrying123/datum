@@ -25,6 +25,8 @@ jobs:
       - name: Exercise Studio offline in Chromium
         working-directory: parameter_studio/datum_parameter_studio
         run: CHROMIUM_PATH="$(command -v google-chrome)" npm run test:browser
+      - name: Exercise Studio HTTP APIs with Node dependencies installed
+        run: PYTHONPATH=parameter_studio python -m unittest parameter_studio.tests.test_generation_state_api parameter_studio.tests.test_sim_snapshot_api -v
       - name: Validate source and wheel distributions
         run: |
           python -m pip install build

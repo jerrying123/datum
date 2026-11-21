@@ -1108,7 +1108,6 @@ async function refresh() {
     }
 }
 function buildSpec() {
-    if (selectedCadState()) throw Error('Parameter generation for selected CAD states is not supported. Choose Saved state first.');
     const params: Record<string, ParameterSource> = {};
     for (const m of mappings) {
         if (m.stale)
@@ -1164,8 +1163,9 @@ $('#generate').onclick = async () => {
         const spec: ParameterSpec = JSON.parse(buildSpec());
         button.disabled = true;
         $('#generated-files').hidden = true;
-        $('#message').textContent = 'Generating from the current saved CAD files…';
-        const response = await fetch('/api/generate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ spec, worktree: $('#worktree').value.trim() }) });
+        const cadState = selectedCadState();
+        $('#message').textContent = cadState ? 'Checking the selected CAD state…' : 'Generating from the current saved CAD files…';
+        const response = await fetch('/api/generate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ spec, worktree: $('#worktree').value.trim(), ...(cadState ? {cad_state:cadState, assembly:selectedPath} : {}) }) });
         const body = await contract.jsonResponse(response, contract.generation);
         if (typeof body.manifest !== 'string' || typeof body.header !== 'string')
             throw Error('Generation returned no manifest or header.');

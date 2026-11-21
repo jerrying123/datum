@@ -141,6 +141,9 @@ catalog and simulation controls against local synthetic API responses.
 
 ## CAD feature states
 
+For a step-by-step walkthrough of parameters and configurations, see the
+[Studio parameters and configurations guide](../docs/STUDIO_PARAMETERS_AND_CONFIGURATIONS.md).
+
 Select a saved assembly in Studio and choose **CAD feature state**. The list
 comes directly from that file: each `After feature` option rolls the linear
 history marker after that feature, and `CAD configuration` entries are native

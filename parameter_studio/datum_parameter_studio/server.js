@@ -76,7 +76,25 @@ function validCadState(state) {
 app.post('/api/generate',async(req,res)=>{
   let scratch;
   try {
-    const {spec,worktree}=req.body||{};
+    const body=req.body;
+    if(!body || typeof body!=='object' || Array.isArray(body)) throw new Error('Provide a parameter spec and valid worktree.');
+    if(Object.hasOwn(body,'cad_state') && body.cad_state !== null) {
+      if(!validCadState(body.cad_state)||typeof body.assembly!=='string') throw Error('Selected CAD state requires its assembly path and current state fingerprint.');
+      const base=await fs.realpath(projectRoot);
+      await validateSource(body.assembly,base);
+      const bytes=await fs.readFile(path.join(base,body.assembly));
+      if(createHash('sha256').update(bytes).digest('hex')!==body.cad_state.sha256) throw Object.assign(Error('Selected CAD state is stale; select it again.'),{status:409});
+      const entry=new AdmZip(bytes).getEntry('document.json');
+      if(!entry) throw Error('Selected assembly has no document.json.');
+      const doc=JSON.parse(entry.getData().toString('utf8'));
+      const exists=body.cad_state.kind==='configuration'
+        ? doc.configs?.rows?.filter(row=>row?.name===body.cad_state.value).length===1
+        : doc.features?.filter(feature=>feature?.id===body.cad_state.value).length===1;
+      if(!exists) throw Object.assign(Error('Selected CAD state no longer exists; select it again.'),{status:409});
+      return res.status(400).json({code:'CAD_STATE_EXTRACTION_UNSUPPORTED',error:'Parameter extraction for selected CAD states is not available yet. Choose Saved state to generate parameters.'});
+    }
+    if(Object.keys(body).some(k=>!['spec','worktree','cad_state','assembly'].includes(k))) throw new Error('Unknown generation request field.');
+    const {spec,worktree}=body;
     if(!spec||typeof spec!=='object'||Array.isArray(spec)||spec.schema!=='datum.robot.parameter-spec/2'||spec.units!=='m'||typeof worktree!=='string'||!/^[a-z_][a-z0-9_]*$/.test(worktree)||!spec.worktrees||typeof spec.worktrees!=='object'||!Object.hasOwn(spec.worktrees,worktree)) throw new Error('Provide a parameter spec and valid worktree.');
     const tree=spec.worktrees[worktree];
     if(!tree||typeof tree!=='object'||Array.isArray(tree)||!Array.isArray(spec.sources||[])||!Array.isArray(tree.sources||[])||!tree.parameters||typeof tree.parameters!=='object'||Array.isArray(tree.parameters)) throw new Error('Invalid parameter specification.');
@@ -89,7 +107,7 @@ app.post('/api/generate',async(req,res)=>{
     await runFile(process.env.DATUM_PARAMS_BIN||'datum-params',['generate',base,specFile,worktree,manifestFile,headerFile],{timeout:30000,maxBuffer:1024*1024});
     const [manifest,header]=await Promise.all([fs.readFile(manifestFile,'utf8'),fs.readFile(headerFile,'utf8')]);
     res.json({manifest,header});
-  } catch(e) { res.status(400).json({error:e.stderr?.trim()||e.message}); }
+  } catch(e) { res.status(e.status||400).json({error:e.stderr?.trim()||e.message}); }
   finally { if(scratch) await fs.rm(scratch,{recursive:true,force:true}); }
 });
 app.get('/api/preview/:id',async(req,res)=>{if(!/^[a-f0-9]{64}$/.test(req.params.id)||!/^[a-f0-9]{64}$/.test(req.query.v||''))return res.sendStatus(400);const root=path.join('/previews',req.params.id),file=root+'.png';try{if((await fs.readFile(root+'.rev','utf8'))!==req.query.v)return res.sendStatus(409);res.set('Cache-Control','no-store').sendFile(file);}catch{res.sendStatus(404);}});
